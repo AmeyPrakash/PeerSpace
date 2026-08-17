@@ -8,6 +8,7 @@ import re
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
+from typing import Optional, List, Dict, Any, Tuple
 from groq import Groq
 from agent.tools import AVAILABLE_TOOLS, set_session_context
 from agent.prompts import SYSTEM_PROMPT
