@@ -633,7 +633,7 @@ document.addEventListener("DOMContentLoaded", () => {
             appendMessage("coach", "Looking for a peer to chat with...", "System");
 
             const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-            this.ws = new WebSocket(`${protocol}//${window.location.host}/ws/chat-room?session_id=${encodeURIComponent(sessionId)}&alias=${encodeURIComponent(currentAlias)}`);
+            this.ws = new WebSocket(`${protocol}//${window.location.host}/api/ws/chat-room?session_id=${encodeURIComponent(sessionId)}&alias=${encodeURIComponent(currentAlias)}`);
             
             this.ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
