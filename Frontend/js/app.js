@@ -1037,17 +1037,33 @@ document.addEventListener("DOMContentLoaded", () => {
                         ? `
                             <button class="dispatch-btn" data-id="${alert.id}" data-act="DISPATCHED">Dispatch On-Call Counselor</button>
                             <button class="resolve-btn" data-id="${alert.id}" data-act="RESOLVED">Mark Resolved</button>
+                            <button class="btn-secondary join-counselor-alert-btn" data-session-id="${alert.session_id}" data-alert-id="${alert.id}" style="padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer; color: var(--text-color);">Join Live Chat</button>
                           `
-                        : `<span class="alert-status-badge ${alert.status}">Status: ${alert.status}</span>`
+                        : `<span class="alert-status-badge ${alert.status}">Status: ${alert.status}</span>
+                           <button class="btn-secondary join-counselor-alert-btn" data-session-id="${alert.session_id}" data-alert-id="${alert.id}" style="margin-left: 1rem; padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer; color: var(--text-color);">Join Live Chat</button>`
                     }
                 </div>
             `;
 
-            card.querySelectorAll("button").forEach((btn) => {
+            card.querySelectorAll("button.dispatch-btn, button.resolve-btn").forEach((btn) => {
                 btn.addEventListener("click", async () => {
                     const alertId = btn.getAttribute("data-id");
                     const act = btn.getAttribute("data-act");
                     await dispatchAlertAction(alertId, act);
+                });
+            });
+
+            card.querySelectorAll(".join-counselor-alert-btn").forEach((btn) => {
+                btn.addEventListener("click", async () => {
+                    const sid = btn.getAttribute("data-session-id");
+                    const alertId = btn.getAttribute("data-alert-id");
+                    
+                    // Automatically mark as DISPATCHED if a counselor joins
+                    if (alert.status === "PENDING") {
+                        await dispatchAlertAction(alertId, "DISPATCHED");
+                    }
+                    
+                    openCounselorChat(sid);
                 });
             });
 

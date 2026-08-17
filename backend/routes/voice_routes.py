@@ -24,7 +24,7 @@ async def voice_escalate_api(payload: VoiceEscalatePayload):
         "recommended_action": "Contact student voice session; dispatch on-call counselor team.",
         "status": "PENDING"
     }
-    COUNSELOR_ALERTS.insert(0, alert)
+    COUNSELOR_ALERTS.append(alert)
     return {"status": "success", "alert_id": alert["id"]}
 
 @router.websocket("/ws/voice-room")

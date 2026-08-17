@@ -35,14 +35,13 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self'; "
-        "style-src 'self' 'unsafe-inline'; "  # unsafe-inline needed for dynamic styles, consider nonce approach
-        "font-src 'self'; "
-        "connect-src 'self' wss: ws:; "  # Allow WebSocket connections for voice chat
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "connect-src 'self' wss: ws:; "
         "img-src 'self' data:; "
-        "frame-ancestors 'none'; "  # Prevents framing more strictly than X-Frame-Options
-        "base-uri 'self'; "  # Prevent base tag injection
-        "form-action 'self'; "  # Restrict form submissions to same origin
-        "upgrade-insecure-requests"  # Upgrade HTTP to HTTPS
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self';"
     )
     
     # Additional security headers for defense-in-depth

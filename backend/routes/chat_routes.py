@@ -61,10 +61,12 @@ async def chat_escalate_api(payload: ChatEscalatePayload, request: Request):
         "severity": "CRITICAL",
         "reason": f"Student {payload.alias} directly requested a {payload.mode.upper()} session with a counselor: {payload.reason}",
         "session_id": payload.session_id,
+        "alias": payload.alias,
+        "recommended_action": "Contact student immediately; dispatch on-call counselor.",
         "status": "PENDING",
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     }
-    COUNSELOR_ALERTS.insert(0, alert)
+    COUNSELOR_ALERTS.append(alert)
     return {"status": "success", "alert_id": alert["id"]}
 
 @router.websocket("/ws/chat-room")
