@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+    <title>PeerSpace — Anonymous Student Voice & CBT Support</title>
+    <meta name="description" content="Minimalist, anonymous campus peer-to-peer live voice chat and Cognitive Behavioral Therapy support.">
+    <!-- Google Fonts: Newsreader (Editorial Serif) + Geist (Geometric Sans) + Geist Mono (Monospace) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@300;400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="workspace-frame">
+        <!-- Minimalist Top Window Navigation Bar -->
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-square"></span>
+                <span class="brand-name">PeerSpace</span>
+                <button class="alias-tag" id="student-alias-badge" type="button" title="Click to randomize your anonymous identity" aria-label="Randomize anonymous identity">
+                    <span class="alias-dot"></span>
+                    <span id="current-alias-text">AnonStudent</span>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="alias-shuffle-icon">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <polyline points="1 20 1 14 7 14"></polyline>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Central Tab Navigation -->
+            <nav class="nav-cluster">
+                <button class="nav-tab active" id="tab-student" data-view="student-view">
+                    Student Space
+                </button>
+            </nav>
+
+            <!-- Actions Cluster -->
+            <div class="topbar-actions">
+                <button id="start-call-btn" class="action-btn-voice" title="Start anonymous student-to-student live voice chat">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+                    </svg>
+                    <span>Peer Voice</span>
+                </button>
+
+                <button id="crisis-link" class="text-link-btn" title="24/7 National Emergency Helplines">
+                    Crisis Support
+                </button>
+
+                <button id="new-chat-btn" class="icon-btn-minimal" title="Start a new anonymous session">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                        <path d="M3 3v5h5"/>
+                        <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+                        <path d="M16 21h5v-5"/>
+                    </svg>
+                </button>
+
+                <!-- Counselor Portal -->
+                <button class="nav-tab counselor-tab" id="tab-admin" data-view="admin-view" title="Staff & Counselor Intervention Portal">
+                    <span>Counselor Portal</span>
+                    <span class="alert-count-pill" id="admin-alert-count" style="display: none;">0</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- ======================================================== -->
+        <!-- VIEW 1: STUDENT CHAT & PEER VOICE SPACE                  -->
+        <!-- ======================================================== -->
+        <main class="view-panel" id="student-view">
+            <!-- Messages Stream -->
+            <div class="chat-stream" id="chat-messages">
+                <!-- Editorial Welcome Document State -->
+                <section class="editorial-hero" id="hero-intro">
+                    <div class="editorial-header">
+                        <span class="hero-label">Campus Wellbeing Space</span>
+                        <h1 class="hero-title">How are you holding up today?</h1>
+                        <p class="hero-subtitle">
+                            You are connected anonymously as <strong id="hero-alias-name" class="pseudonym-highlight">Student</strong>. 
+                            Work through negative thoughts with your CBT peer coach, or start an encrypted voice call with another student.
+                        </p>
+                    </div>
+
+                    <!-- Voice Call Bento Block -->
+                    <div class="voice-bento-card" id="hero-voice-trigger">
+                        <div class="voice-bento-content">
+                            <div class="voice-bento-meta">
+                                <span class="pastel-badge blue">1-on-1 Audio</span>
+                                <span class="meta-label">Peer Listening Network</span>
+                            </div>
+                            <h3 class="voice-bento-title">Anonymous Student-to-Student Voice Call</h3>
+                            <p class="voice-bento-desc">Talk directly with a fellow campus peer. No accounts, no recordings, zero identifiable data.</p>
+                        </div>
+                        <div class="voice-bento-action">
+                            <button class="btn-primary" id="hero-call-btn">Start Voice Call</button>
+                        </div>
+                    </div>
+
+                    <!-- Bento Prompt Inquiries -->
+                    <div class="prompt-grid">
+                        <button class="prompt-card" data-text="ngl bro i'm totally cooked for midterms... if i fail this one test my gpa is ruined and everyone will think i'm dumb fr">
+                            <span class="prompt-label">Academic Anxiety</span>
+                            <span class="prompt-text">"Ngl I am completely cooked for midterms..."</span>
+                        </button>
+                        <button class="prompt-card" data-text="I feel like everyone else has their life together and I'm just constantly falling behind.">
+                            <span class="prompt-label">Comparison & Pressure</span>
+                            <span class="prompt-text">"Feeling like I am constantly falling behind everyone else."</span>
+                        </button>
+                        <button class="prompt-card" data-text="I'm feeling super anxious right now, can you walk me through a quick breathing exercise?">
+                            <span class="prompt-label">Grounding Exercise</span>
+                            <span class="prompt-text">"Walk me through a quick box breathing reset."</span>
+                        </button>
+                        <button class="prompt-card" data-text="My roommate is driving me crazy and I can't even study in peace.">
+                            <span class="prompt-label">Living Situation</span>
+                            <span class="prompt-text">"Roommate friction is making it hard to study."</span>
+                        </button>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Typing Pulse -->
+            <div class="typing-container" id="typing-row" style="display: none;">
+                <div class="typing-indicator">
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                </div>
+            </div>
+
+            <!-- Input Bar -->
+            <footer class="composer-dock">
+                <form id="chat-form" class="composer-form">
+                    <button type="button" class="composer-icon-btn" id="input-call-btn" title="Start student voice call">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                            <line x1="12" y1="19" x2="12" y2="23"/>
+                            <line x1="8" y1="23" x2="16" y2="23"/>
+                        </svg>
+                    </button>
+                    <textarea 
+                        id="message-input" 
+                        placeholder="Write a message to your CBT peer coach..." 
+                        rows="1"
+                        maxlength="2000"
+                        autocomplete="off"
+                    ></textarea>
+                    <button type="submit" id="send-button" class="btn-send" disabled aria-label="Send message">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="12" y1="19" x2="12" y2="5"></line>
+                            <polyline points="5 12 12 5 19 12"></polyline>
+                        </svg>
+                    </button>
+                </form>
+                <div class="composer-caption">
+                    <span>Press <kbd>Enter</kbd> to send. In acute crisis, call Jeevan Aastha (<kbd>1800 233 3330</kbd>) or Tele-MANAS (<kbd>14416</kbd>).</span>
+                </div>
+            </footer>
+        </main>
+
+        <!-- ======================================================== -->
+        <!-- VIEW 2: COUNSELOR & ADMIN INTERVENTION DASHBOARD          -->
+        <!-- ======================================================== -->
+        <main class="view-panel admin-panel" id="admin-view" style="display: none;">
+            <!-- Authentication Gate -->
+            <div class="auth-gate-center" id="admin-auth-gate">
+                <div class="editorial-card auth-box">
+                    <span class="pastel-badge green">Authorized Access</span>
+                    <h2 class="auth-title">Campus Counselor Portal</h2>
+                    <p class="auth-desc">Enter your designated mental health staff passkey to review active student sessions and triage safety escalations.</p>
+                    <form id="admin-auth-form" class="auth-form-layout">
+                        <input type="password" id="admin-passkey-input" placeholder="Enter counselor passkey" autocomplete="off">
+                        <button type="submit" class="btn-primary full-width">Access Portal</button>
+                    </form>
+                    <div class="auth-footer-note">Contact your institution's mental health coordinator for access credentials.</div>
+                </div>
+            </div>
+
+            <!-- Counselor Operational Dashboard -->
+            <div class="admin-workspace" id="admin-main-content" style="display: none;">
+                <div class="dashboard-topbar">
+                    <div class="staff-identity">
+                        <span class="active-dot"></span>
+                        <span class="staff-role">On-Duty Counselor Workspace</span>
+                        <span class="pastel-badge green">Verified Staff</span>
+                    </div>
+                    <div class="staff-controls">
+                        <button class="btn-secondary" id="refresh-alerts-btn">Refresh</button>
+                        <button class="btn-danger-outline" id="admin-logout-btn" title="End counselor session">Log Out</button>
+                    </div>
+                </div>
+
+                <!-- Bento Metrics Row -->
+                <div class="bento-metric-grid">
+                    <div class="bento-metric-card">
+                        <span class="metric-label">Active Student Sessions</span>
+                        <span class="metric-number" id="stat-active-sessions">0</span>
+                    </div>
+                    <div class="bento-metric-card alert-highlight">
+                        <span class="metric-label">Pending AI Intervention Alerts</span>
+                        <span class="metric-number text-alert" id="stat-pending-alerts">0</span>
+                    </div>
+                    <div class="bento-metric-card">
+                        <span class="metric-label">Total Escalations Handled</span>
+                        <span class="metric-number" id="stat-total-alerts">0</span>
+                    </div>
+                </div>
+
+                <!-- Intervention Alerts Feed -->
+                <section class="dashboard-card">
+                    <div class="card-head">
+                        <h3>Active Professional Intervention Alerts</h3>
+                    </div>
+                    <div class="alerts-stream" id="alerts-feed">
+                        <div class="empty-feed-text">No pending intervention alerts. All peer conversations are operating within standard parameters.</div>
+                    </div>
+                </section>
+
+                <!-- Active Student Sessions Table -->
+                <section class="dashboard-card">
+                    <div class="card-head">
+                        <h3>Active Anonymous Student Sessions</h3>
+                    </div>
+                    <div class="table-container">
+                        <table class="editorial-table">
+                            <thead>
+                                <tr>
+                                    <th>Pseudonym</th>
+                                    <th>Session Hash</th>
+                                    <th>Messages</th>
+                                    <th>Last Activity</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sessions-table-body">
+                                <tr><td colspan="4" class="text-center">No active student sessions currently open.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- FULL-SCREEN STUDENT-TO-STUDENT PEER VOICE OVERLAY            -->
+    <!-- ============================================================ -->
+    <div class="voice-overlay" id="voice-call-overlay" style="display: none;">
+        <!-- Top Status Bar -->
+        <header class="voice-topbar">
+            <div class="call-badge" id="call-live-pill">
+                <span class="call-pulse"></span>
+                <span id="call-connection-badge">Matching Peer...</span>
+            </div>
+            <div class="call-clock" id="call-duration-timer">00:00</div>
+            <div class="call-meta" id="call-peer-label">Searching campus network...</div>
+        </header>
+
+        <!-- Central Stage -->
+        <div class="voice-stage">
+            <!-- Matchmaking Radar -->
+            <div class="matchmaking-container" id="matchmaking-stage">
+                <div class="radar-box">
+                    <div class="radar-ping"></div>
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
+                        <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
+                    </svg>
+                </div>
+                <h3 class="radar-heading" id="matchmaking-status-heading">Finding an anonymous peer...</h3>
+                <p class="radar-subtext">You will be paired 1-on-1 for private listener support</p>
+            </div>
+
+            <!-- Active Dual Audio Stage -->
+            <div class="active-audio-stage" id="active-peer-stage" style="display: none;">
+                <div class="peer-duo-layout">
+                    <!-- Local Student (You) -->
+                    <div class="peer-pod" id="local-peer-col">
+                        <div class="audio-orb-container" id="local-orb-wrapper">
+                            <div class="audio-orb local">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                    <circle cx="12" cy="7" r="4"></circle>
+                                </svg>
+                            </div>
+                        </div>
+                        <span class="pod-title" id="local-peer-name">You (Anon)</span>
+                        <span class="pod-activity" id="local-activity-label">Mic Ready</span>
+                    </div>
+
+                    <!-- Visual Audio Bridge -->
+                    <div class="audio-wave-bridge">
+                        <span class="wave-bar"></span>
+                        <span class="wave-bar"></span>
+                        <span class="wave-bar"></span>
+                    </div>
+
+                    <!-- Remote Student -->
+                    <div class="peer-pod" id="remote-peer-col">
+                        <div class="audio-orb-container" id="remote-orb-wrapper">
+                            <div class="audio-orb remote">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                    <circle cx="8.5" cy="7" r="4"></circle>
+                                    <line x1="20" y1="8" x2="20" y2="14"></line>
+                                    <line x1="23" y1="11" x2="17" y2="11"></line>
+                                </svg>
+                            </div>
+                        </div>
+                        <span class="pod-title" id="remote-peer-name">Peer Student</span>
+                        <span class="pod-activity" id="remote-activity-label">Connected</span>
+                    </div>
+                </div>
+
+                <div class="call-connection-state">
+                    <span id="call-state-text">Encrypted 2-Way WebRTC Audio</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hidden WebRTC Remote Audio Stream Element -->
+        <audio id="remote-peer-audio" autoplay playsinline></audio>
+
+        <!-- Call Dock Controls -->
+        <footer class="voice-controls-dock">
+            <button class="dock-action-btn" id="call-mute-btn" title="Mute/Unmute microphone">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+                <span id="mute-btn-label">Mute</span>
+            </button>
+
+            <button class="dock-action-btn" id="call-next-peer-btn" title="Match with another student">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                <span>Next Peer</span>
+            </button>
+
+            <button class="dock-action-btn alert-trigger" id="call-counselor-alert-btn" title="Alert on-call counselor">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                <span>Alert Counselor</span>
+            </button>
+
+            <button class="dock-action-btn end-trigger" id="end-voice-call-btn" title="End call">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path>
+                    <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+                <span>End Call</span>
+            </button>
+        </footer>
+    </div>
+
+    <!-- Crisis Helpline Modal -->
+    <div class="modal-scrim" id="crisis-modal" style="display: none;">
+        <div class="editorial-modal-card">
+            <div class="modal-header">
+                <h3>24/7 National Emergency Helplines</h3>
+                <button class="modal-close" id="close-crisis" aria-label="Close dialog">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-content-list">
+                <div class="helpline-entry">
+                    <div class="helpline-name">Jeevan Aastha Helpline</div>
+                    <div class="helpline-contact">Call <kbd>1800 233 3330</kbd> (24/7 Toll-Free & Confidential)</div>
+                </div>
+                <div class="helpline-entry">
+                    <div class="helpline-name">Aasra Crisis Support</div>
+                    <div class="helpline-contact">Call <kbd>09820466726</kbd> (24/7 Suicide Prevention)</div>
+                </div>
+                <div class="helpline-entry">
+                    <div class="helpline-name">Tele-MANAS (Govt of India)</div>
+                    <div class="helpline-contact">Dial <kbd>14416</kbd> or <kbd>1800 891 4416</kbd> (24/7 National Support)</div>
+                </div>
+                <div class="helpline-entry">
+                    <div class="helpline-name">Kiran Mental Health Helpline</div>
+                    <div class="helpline-contact">Call <kbd>1800 599 0019</kbd> (24/7 Multi-lingual Govt Line)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

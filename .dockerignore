@@ -1,0 +1,16 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.git
+.gitignore
+.env
+.env.example
+*.log
+.DS_Store
+Thumbs.db
+test_*.py
