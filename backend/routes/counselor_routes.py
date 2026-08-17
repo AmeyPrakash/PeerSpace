@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from backend.rate_limiter import check_rate_limit
 from backend.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 
 router = APIRouter(prefix="/api/counselor", tags=["counselor"])
 
