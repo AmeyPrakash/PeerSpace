@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@300;400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=1.3">
 </head>
 <body>
     <div class="workspace-frame">
@@ -36,10 +36,21 @@
                 <button class="nav-tab active" id="tab-student" data-view="student-view">
                     Student Space
                 </button>
+                <button class="nav-tab counselor-tab" id="tab-admin" data-view="admin-view" title="Staff & Counselor Intervention Portal">
+                    <span>Counselor Portal</span>
+                    <span class="alert-count-pill" id="admin-alert-count" style="display: none;">0</span>
+                </button>
             </nav>
 
             <!-- Actions Cluster -->
             <div class="topbar-actions">
+                <button id="start-chat-btn" class="action-btn-voice" title="Start anonymous student-to-student text chat" style="margin-right: 0.25rem;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <span>Peer Text</span>
+                </button>
+
                 <button id="start-call-btn" class="action-btn-voice" title="Start anonymous student-to-student live voice chat">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
@@ -60,11 +71,23 @@
                     </svg>
                 </button>
 
-                <!-- Counselor Portal -->
-                <button class="nav-tab counselor-tab" id="tab-admin" data-view="admin-view" title="Staff & Counselor Intervention Portal">
-                    <span>Counselor Portal</span>
-                    <span class="alert-count-pill" id="admin-alert-count" style="display: none;">0</span>
+                <button id="theme-toggle-btn" class="icon-btn-minimal" title="Toggle Dark/Light Theme">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="theme-icon-moon">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="theme-icon-sun" style="display: none;">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
                 </button>
+
             </div>
         </header>
 
@@ -72,6 +95,26 @@
         <!-- VIEW 1: STUDENT CHAT & PEER VOICE SPACE                  -->
         <!-- ======================================================== -->
         <main class="view-panel" id="student-view">
+            <!-- Counselor Connected Banner (Hidden by default) -->
+            <div id="counselor-connected-banner" style="display: none; background: var(--bg-surface-elevated); color: var(--text-primary); padding: 1rem; border: 1px solid var(--border-subtle); margin-bottom: 1rem; border-radius: var(--radius-md); align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="pastel-badge green">Live Counselor</span>
+                    <strong style="font-family: var(--font-sans); font-size: 0.9rem;">A campus counselor has joined your session. Responses are now from a human professional.</strong>
+                </div>
+            </div>
+
+            <!-- Peer Text Connected Banner (Hidden by default) -->
+            <div id="peer-text-connected-banner" style="display: none; background: var(--bg-surface-elevated); color: var(--text-primary); padding: 1rem; border: 1px solid var(--border-subtle); margin-bottom: 1rem; border-radius: var(--radius-md); align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="pastel-badge blue">Peer Text Chat</span>
+                    <strong id="peer-text-status" style="font-family: var(--font-sans); font-size: 0.9rem;">Connected to Anonymous Peer.</strong>
+                </div>
+                <div>
+                    <button class="btn-danger-outline" id="disconnect-peer-text-btn" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Leave Chat</button>
+                    <button class="btn-secondary" id="next-peer-text-btn" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; margin-left: 0.5rem;">Next Peer</button>
+                </div>
+            </div>
+
             <!-- Messages Stream -->
             <div class="chat-stream" id="chat-messages">
                 <!-- Editorial Welcome Document State -->
@@ -83,20 +126,39 @@
                             You are connected anonymously as <strong id="hero-alias-name" class="pseudonym-highlight">Student</strong>. 
                             Work through negative thoughts with your CBT peer coach, or start an encrypted voice call with another student.
                         </p>
+                        <div style="margin-top: 1rem;">
+                            <button class="btn-danger-outline" id="contact-counselor-btn" style="padding: 0.4rem 0.8rem; font-size: 0.9rem;">Contact Counselor Directly</button>
+                        </div>
                     </div>
 
-                    <!-- Voice Call Bento Block -->
-                    <div class="voice-bento-card" id="hero-voice-trigger">
-                        <div class="voice-bento-content">
-                            <div class="voice-bento-meta">
-                                <span class="pastel-badge blue">1-on-1 Audio</span>
-                                <span class="meta-label">Peer Listening Network</span>
+                    <!-- Text & Voice Call Bento Blocks -->
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                        <div class="voice-bento-card" id="hero-chat-trigger" style="flex: 1; min-width: 280px; margin-bottom: 0;">
+                            <div class="voice-bento-content">
+                                <div class="voice-bento-meta">
+                                    <span class="pastel-badge blue">Text Chat</span>
+                                    <span class="meta-label">Peer Listening Network</span>
+                                </div>
+                                <h3 class="voice-bento-title">Anonymous Peer Text Chat</h3>
+                                <p class="voice-bento-desc">Text directly with a fellow campus peer. No accounts, no identifiable data.</p>
                             </div>
-                            <h3 class="voice-bento-title">Anonymous Student-to-Student Voice Call</h3>
-                            <p class="voice-bento-desc">Talk directly with a fellow campus peer. No accounts, no recordings, zero identifiable data.</p>
+                            <div class="voice-bento-action">
+                                <button class="btn-primary" id="hero-start-chat-btn">Find a Peer</button>
+                            </div>
                         </div>
-                        <div class="voice-bento-action">
-                            <button class="btn-primary" id="hero-call-btn">Start Voice Call</button>
+
+                        <div class="voice-bento-card" id="hero-voice-trigger" style="flex: 1; min-width: 280px; margin-bottom: 0;">
+                            <div class="voice-bento-content">
+                                <div class="voice-bento-meta">
+                                    <span class="pastel-badge green">1-on-1 Audio</span>
+                                    <span class="meta-label">Peer Listening Network</span>
+                                </div>
+                                <h3 class="voice-bento-title">Anonymous Peer Voice Call</h3>
+                                <p class="voice-bento-desc">Talk directly with a fellow campus peer over encrypted audio. Zero footprint.</p>
+                            </div>
+                            <div class="voice-bento-action">
+                                <button class="btn-primary" id="hero-call-btn">Start Voice Call</button>
+                            </div>
                         </div>
                     </div>
 
@@ -177,6 +239,10 @@
                         <button type="submit" class="btn-primary full-width">Access Portal</button>
                     </form>
                     <div class="auth-footer-note">Contact your institution's mental health coordinator for access credentials.</div>
+                    <div style="margin-top: 1.5rem; text-align: center; border-top: 1px solid var(--border-subtle); padding-top: 1rem;">
+                        <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Want to join our team?</p>
+                        <button type="button" class="btn-secondary" id="show-apply-view-btn" style="width: 100%;">Apply to become a Counselor</button>
+                    </div>
                 </div>
             </div>
 
@@ -233,12 +299,340 @@
                                     <th>Session Hash</th>
                                     <th>Messages</th>
                                     <th>Last Activity</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="sessions-table-body">
-                                <tr><td colspan="4" class="text-center">No active student sessions currently open.</td></tr>
+                                <tr><td colspan="5" class="text-center">No active student sessions currently open.</td></tr>
                             </tbody>
                         </table>
+                    </div>
+                </section>
+
+                <!-- Live Counselor Chat Room (Hidden by default) -->
+                <section class="dashboard-card" id="counselor-chat-panel" style="display: none;">
+                    <div class="card-head">
+                        <h3 id="counselor-chat-title">Live Session with ...</h3>
+                        <button class="btn-danger-outline" id="close-counselor-chat-btn">Close Session</button>
+                    </div>
+                    <div class="chat-stream" id="counselor-chat-messages" style="max-height: 300px; overflow-y: auto; padding: 1rem; background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); margin-bottom: 1rem;">
+                        <div class="empty-feed-text" style="font-style: italic; color: var(--text-muted);">Session connected. Send a message to start.</div>
+                    </div>
+                    <form id="counselor-chat-form" class="composer-form" style="margin-top: 1rem;">
+                        <button type="button" class="composer-icon-btn" id="counselor-start-call-btn" title="Start voice call with student">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                                <line x1="12" y1="19" x2="12" y2="23"/>
+                                <line x1="8" y1="23" x2="16" y2="23"/>
+                            </svg>
+                        </button>
+                        <input type="text" id="counselor-message-input" class="composer-input" placeholder="Type a message to the student..." autocomplete="off">
+                        <button type="submit" class="btn-send" aria-label="Send message">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="12" y1="19" x2="12" y2="5"></line>
+                                <polyline points="5 12 12 5 19 12"></polyline>
+                            </svg>
+                        </button>
+                    </form>
+                </section>
+            </div>
+        </main>
+
+        <!-- ======================================================== -->
+        <!-- VIEW 3: BECOME A COUNSELOR APPLICATION FORM              -->
+        <!-- ======================================================== -->
+        <main class="view-panel" id="apply-counselor-view" style="display: none;">
+            <div class="editorial-form-container">
+                <!-- Application Header -->
+                <section class="editorial-hero" style="margin-bottom: 3rem;">
+                    <div class="editorial-header">
+                        <span class="hero-label">Join Our Team</span>
+                        <h1 class="hero-title">Become a Campus Counselor</h1>
+                        <p class="hero-subtitle">
+                            We're looking for qualified mental health professionals to provide peer support and professional intervention on our platform.
+                            Submit your credentials and qualifications for review.
+                        </p>
+                        <button type="button" class="btn-secondary" id="back-to-login-btn" style="margin-top: 1rem;">&larr; Back to Login</button>
+                    </div>
+                </section>
+
+                <!-- Application Form -->
+                <form id="counselor-application-form" class="editorial-form">
+                    <!-- Personal Information Section -->
+                    <fieldset class="form-section">
+                        <legend class="form-section-title">Personal Information</legend>
+                        
+                        <div class="form-group">
+                            <label for="counselor-full-name" class="form-label">Full Name *</label>
+                            <input 
+                                type="text" 
+                                id="counselor-full-name" 
+                                name="full_name" 
+                                placeholder="Your full legal name"
+                                required 
+                                class="form-input"
+                            >
+                            <span class="form-hint">As it appears on your credentials</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="counselor-email" class="form-label">Email Address *</label>
+                            <input 
+                                type="email" 
+                                id="counselor-email" 
+                                name="email" 
+                                placeholder="your.email@institution.edu"
+                                required 
+                                class="form-input"
+                            >
+                            <span class="form-hint">We'll use this to contact you about your application</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="counselor-phone" class="form-label">Phone Number (Optional)</label>
+                            <input 
+                                type="tel" 
+                                id="counselor-phone" 
+                                name="phone" 
+                                placeholder="+1 (555) 000-0000"
+                                class="form-input"
+                            >
+                        </div>
+                    </fieldset>
+
+                    <!-- Educational Qualifications Section -->
+                    <fieldset class="form-section">
+                        <legend class="form-section-title">Educational Qualifications</legend>
+                        
+                        <div class="form-group">
+                            <label for="counselor-highest-degree" class="form-label">Highest Degree *</label>
+                            <select 
+                                id="counselor-highest-degree" 
+                                name="highest_degree" 
+                                required 
+                                class="form-input form-select"
+                            >
+                                <option value="">-- Select Degree --</option>
+                                <option value="Bachelor's">Bachelor's Degree</option>
+                                <option value="Master's">Master's Degree</option>
+                                <option value="PhD">PhD / Doctoral</option>
+                                <option value="MD">MD (Medical Doctor)</option>
+                                <option value="Diploma">Diploma/Certification</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="counselor-degree-field" class="form-label">Field of Study *</label>
+                            <input 
+                                type="text" 
+                                id="counselor-degree-field" 
+                                name="degree_field" 
+                                placeholder="e.g., Clinical Psychology, Counseling, Social Work"
+                                required 
+                                class="form-input"
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="counselor-university" class="form-label">University / Institution *</label>
+                            <input 
+                                type="text" 
+                                id="counselor-university" 
+                                name="university" 
+                                placeholder="Name of educational institution"
+                                required 
+                                class="form-input"
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="counselor-graduation-year" class="form-label">Graduation Year *</label>
+                            <input 
+                                type="number" 
+                                id="counselor-graduation-year" 
+                                name="graduation_year" 
+                                placeholder="YYYY"
+                                required 
+                                min="1950" 
+                                max="2026"
+                                class="form-input"
+                            >
+                        </div>
+                    </fieldset>
+
+                    <!-- Professional Background Section -->
+                    <fieldset class="form-section">
+                        <legend class="form-section-title">Professional Background</legend>
+                        
+                        <div class="form-group">
+                            <label for="counselor-experience-years" class="form-label">Years of Professional Experience *</label>
+                            <input 
+                                type="number" 
+                                id="counselor-experience-years" 
+                                name="years_of_experience" 
+                                placeholder="0"
+                                required 
+                                min="0" 
+                                max="100"
+                                class="form-input"
+                            >
+                            <span class="form-hint">Years of counseling or mental health experience</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="counselor-current-role" class="form-label">Current Professional Role *</label>
+                            <input 
+                                type="text" 
+                                id="counselor-current-role" 
+                                name="current_role" 
+                                placeholder="e.g., Licensed Clinical Counselor, School Psychologist"
+                                required 
+                                class="form-input"
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="counselor-certifications" class="form-label">Certifications & Licenses</label>
+                            <textarea 
+                                id="counselor-certifications" 
+                                name="certifications" 
+                                placeholder="e.g., LMHC License #12345, Certified Crisis Counselor, etc."
+                                class="form-input form-textarea"
+                                rows="4"
+                            ></textarea>
+                            <span class="form-hint">List all relevant professional certifications and licenses</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="counselor-specializations" class="form-label">Areas of Specialization *</label>
+                            <textarea 
+                                id="counselor-specializations" 
+                                name="specializations" 
+                                placeholder="e.g., Anxiety & Depression, Grief Counseling, Relationship Issues, Academic Stress, etc."
+                                required 
+                                class="form-input form-textarea"
+                                rows="4"
+                            ></textarea>
+                            <span class="form-hint">What mental health areas do you specialize in?</span>
+                        </div>
+                    </fieldset>
+
+                    <!-- Motivation & Background Section -->
+                    <fieldset class="form-section">
+                        <legend class="form-section-title">Motivation & Background</legend>
+                        
+                        <div class="form-group">
+                            <label for="counselor-motivation" class="form-label">Why do you want to join PeerSpace? *</label>
+                            <textarea 
+                                id="counselor-motivation" 
+                                name="motivation" 
+                                placeholder="Tell us about your interest in supporting student mental health through our platform..."
+                                required 
+                                class="form-input form-textarea"
+                                rows="5"
+                                minlength="50"
+                            ></textarea>
+                            <span class="form-hint">Minimum 50 characters</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="counselor-background-info" class="form-label">Additional Background Information</label>
+                            <textarea 
+                                id="counselor-background-info" 
+                                name="background_info" 
+                                placeholder="Any additional context we should know about you?"
+                                class="form-input form-textarea"
+                                rows="4"
+                            ></textarea>
+                        </div>
+                    </fieldset>
+
+                    <!-- Terms & Submission -->
+                    <fieldset class="form-section">
+                        <legend class="form-section-title">Agreement & Submission</legend>
+                        
+                        <div class="form-group form-checkbox">
+                            <input 
+                                type="checkbox" 
+                                id="counselor-terms-accepted" 
+                                name="terms_accepted" 
+                                required 
+                                class="form-input-checkbox"
+                            >
+                            <label for="counselor-terms-accepted" class="checkbox-label">
+                                I certify that all information provided is accurate and complete. 
+                                I agree to PeerSpace's Code of Conduct and understand that false credentials may result in disqualification. *
+                            </label>
+                        </div>
+
+                        <div class="form-group" style="margin-top: 2rem;">
+                            <button type="submit" class="btn-primary full-width" id="submit-counselor-app">
+                                Submit Application
+                            </button>
+                            <button type="reset" class="btn-secondary full-width" style="margin-top: 0.5rem;">
+                                Clear Form
+                            </button>
+                        </div>
+                    </fieldset>
+                </form>
+
+                <!-- Post Submission Verification -->
+                <div id="post-submission-verification" style="display: none; text-align: center; padding: 3rem 1rem; max-width: 500px; margin: 0 auto;">
+                    <h2 style="font-family: var(--font-serif); font-size: 1.5rem; margin-bottom: 0.5rem; color: var(--text-primary);">Verify Your Contact Info</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: 2rem; line-height: 1.5;">To complete your application, please verify your email and phone number.</p>
+
+                    <div id="post-email-verification" style="margin-bottom: 1.5rem; text-align: left; padding: 1.5rem; border: 1px solid var(--border-subtle); border-radius: 8px;">
+                        <label class="form-label">Email Verification</label>
+                        <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;" id="post-email-display"></p>
+                        <div class="verify-group">
+                            <button type="button" class="btn-secondary" id="post-verify-email-btn">Send Code</button>
+                        </div>
+                        <div id="post-email-otp-container" style="display: none; margin-top: 1rem; gap: 0.5rem; align-items: center;">
+                            <input type="text" id="post-email-otp-input" class="form-input" placeholder="6-digit code" style="width: 150px;">
+                            <button type="button" class="btn-primary" id="post-confirm-email-otp-btn">Confirm</button>
+                        </div>
+                        <p id="post-email-hint" style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem;"></p>
+                        <input type="hidden" id="post-email-verified" value="false">
+                    </div>
+
+                    <div id="post-phone-verification" style="display: none; margin-bottom: 1.5rem; text-align: left; padding: 1.5rem; border: 1px solid var(--border-subtle); border-radius: 8px;">
+                        <label class="form-label">Phone Verification</label>
+                        <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;" id="post-phone-display"></p>
+                        <div class="verify-group">
+                            <button type="button" class="btn-secondary" id="post-verify-phone-btn">Send Code</button>
+                        </div>
+                        <div id="post-phone-otp-container" style="display: none; margin-top: 1rem; gap: 0.5rem; align-items: center;">
+                            <input type="text" id="post-phone-otp-input" class="form-input" placeholder="6-digit code" style="width: 150px;">
+                            <button type="button" class="btn-primary" id="post-confirm-phone-otp-btn">Confirm</button>
+                        </div>
+                        <p id="post-phone-hint" style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem;"></p>
+                        <input type="hidden" id="post-phone-verified" value="false">
+                    </div>
+
+                    <button type="button" class="btn-primary full-width" id="finalize-application-btn" style="display: none;">Complete Application</button>
+                    
+                    <div id="passkey-reveal-container" style="display: none; margin-top: 2rem; padding: 2rem; background: var(--bg-secondary); border-radius: 8px;">
+                        <h3 style="font-family: var(--font-serif); font-size: 1.25rem; margin-bottom: 1rem; color: var(--success);">Application Approved!</h3>
+                        <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.95rem;">Your counselor account is ready. Use the global passkey below to access the operational dashboard.</p>
+                        <div style="font-family: var(--font-mono); font-size: 1.25rem; font-weight: 600; letter-spacing: 0.1em; padding: 1rem; border: 1px dashed var(--border-subtle); border-radius: 4px; color: var(--text-primary); user-select: all;" id="passkey-display">
+                            ---
+                        </div>
+                        <button type="button" class="btn-secondary full-width" style="margin-top: 1.5rem;" onclick="window.location.reload()">Return to Login</button>
+                    </div>
+                </div>
+
+                <!-- Application Status Section (shown after submission) -->
+                <section id="counselor-application-status" style="display: none;" class="editorial-hero">
+                    <div class="editorial-header">
+                        <span class="hero-label" id="status-badge">Application Submitted</span>
+                        <h2 class="hero-title" id="status-title">Thank You for Applying</h2>
+                        <p class="hero-subtitle" id="status-message">
+                            Your application has been received. We'll review your credentials and contact you within 5 business days.
+                        </p>
+                        <div class="status-details" id="status-details" style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 4px; font-family: monospace; font-size: 0.9rem; word-break: break-all;">
+                            Application ID: <strong id="status-app-id">--</strong>
+                        </div>
                     </div>
                 </section>
             </div>
@@ -362,6 +756,29 @@
                 <span>End Call</span>
             </button>
         </footer>
+    </div>
+
+    <!-- Contact Counselor Modal -->
+    <div class="modal-scrim" id="contact-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 9999; align-items: center; justify-content: center;">
+        <div class="editorial-modal-card" style="background: #FFFFFF; border: 1px solid #EAEAEA; border-radius: 8px; width: 100%; max-width: 480px; padding: 32px; box-shadow: 0 4px 24px rgba(0,0,0,0.04); font-family: 'SF Pro Display', 'Helvetica Neue', sans-serif;">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <h2 style="margin: 0; font-family: 'Lyon Text', 'Playfair Display', serif; font-size: 1.5rem; letter-spacing: -0.02em; color: #111111;">Contact a Counselor</h2>
+                <button class="modal-close" id="close-contact-modal" aria-label="Close dialog" style="background: none; border: none; cursor: pointer; color: #787774; padding: 4px; transition: transform 0.2s;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="modal-content-list">
+                <p style="margin-top: 0; margin-bottom: 24px; color: #787774; font-size: 0.95rem; line-height: 1.6;">How would you like to connect with a campus counselor? Select an option below to initiate a secure session.</p>
+                
+                <label for="contact-reason" class="form-label" style="display: block; margin-bottom: 8px; font-size: 0.85rem; color: #111111; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">Brief Reason (Optional)</label>
+                <input type="text" id="contact-reason" class="form-input" placeholder="e.g., I'm feeling overwhelmed with exams..." style="width: 100%; margin-bottom: 32px; box-sizing: border-box; border: 1px solid #EAEAEA; border-radius: 4px; padding: 14px 16px; background: #F9F9F8; color: #111111; font-size: 0.95rem; outline: none; transition: border-color 0.2s;">
+
+                <div style="display: flex; gap: 12px;">
+                    <button class="btn-primary" id="request-chat-btn" style="flex: 1; background: #111111; color: #FFFFFF; border: none; border-radius: 6px; padding: 14px 24px; font-size: 0.95rem; font-weight: 500; cursor: pointer; transition: transform 0.2s, background 0.2s;" onmouseover="this.style.background='#333333'" onmouseout="this.style.background='#111111'" onmousedown="this.style.transform='scale(0.98)'" onmouseup="this.style.transform='scale(1)'">Text Chat</button>
+                    <button class="btn-primary" id="request-voice-btn" style="flex: 1; background: #111111; color: #FFFFFF; border: none; border-radius: 6px; padding: 14px 24px; font-size: 0.95rem; font-weight: 500; cursor: pointer; transition: transform 0.2s, background 0.2s;" onmouseover="this.style.background='#333333'" onmouseout="this.style.background='#111111'" onmousedown="this.style.transform='scale(0.98)'" onmouseup="this.style.transform='scale(1)'">Voice Call</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Crisis Helpline Modal -->

@@ -8,7 +8,37 @@ document.addEventListener("DOMContentLoaded", () => {
     const tabAdmin = document.getElementById("tab-admin");
     const studentView = document.getElementById("student-view");
     const adminView = document.getElementById("admin-view");
+    const applyCounselorView = document.getElementById("apply-counselor-view");
     const adminAlertCountBadge = document.getElementById("admin-alert-count");
+
+    // Theme Toggle
+    const themeToggleBtn = document.getElementById("theme-toggle-btn");
+    const themeIconMoon = document.querySelector(".theme-icon-moon");
+    const themeIconSun = document.querySelector(".theme-icon-sun");
+
+    const currentTheme = localStorage.getItem("peerspace_theme") || "light";
+    if (currentTheme === "dark") {
+        document.documentElement.setAttribute("data-theme", "dark");
+        if (themeIconMoon) themeIconMoon.style.display = "none";
+        if (themeIconSun) themeIconSun.style.display = "block";
+    }
+
+    if (themeToggleBtn) {
+        themeToggleBtn.addEventListener("click", () => {
+            let theme = document.documentElement.getAttribute("data-theme");
+            if (theme === "dark") {
+                document.documentElement.removeAttribute("data-theme");
+                localStorage.setItem("peerspace_theme", "light");
+                if (themeIconMoon) themeIconMoon.style.display = "block";
+                if (themeIconSun) themeIconSun.style.display = "none";
+            } else {
+                document.documentElement.setAttribute("data-theme", "dark");
+                localStorage.setItem("peerspace_theme", "dark");
+                if (themeIconMoon) themeIconMoon.style.display = "none";
+                if (themeIconSun) themeIconSun.style.display = "block";
+            }
+        });
+    }
 
     // Student Identity
     const studentAliasBadge = document.getElementById("student-alias-badge");
@@ -27,6 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Student-to-Student Voice Call Elements
     const startCallBtn = document.getElementById("start-call-btn");
     const heroCallBtn = document.getElementById("hero-call-btn");
+    const contactCounselorBtn = document.getElementById("contact-counselor-btn");
     const heroVoiceTrigger = document.getElementById("hero-voice-trigger");
     const inputCallBtn = document.getElementById("input-call-btn");
 
@@ -139,14 +170,16 @@ document.addEventListener("DOMContentLoaded", () => {
         tabAdmin.classList.remove("active");
         studentView.style.display = "flex";
         adminView.style.display = "none";
+        if (applyCounselorView) applyCounselorView.style.display = "none";
         if (alertsPollInterval) clearInterval(alertsPollInterval);
     }
 
     function switchToAdminView() {
         tabAdmin.classList.add("active");
         tabStudent.classList.remove("active");
-        adminView.style.display = "flex";
         studentView.style.display = "none";
+        if (applyCounselorView) applyCounselorView.style.display = "none";
+        adminView.style.display = "flex";
 
         if (adminToken) {
             adminAuthGate.style.display = "none";
@@ -162,11 +195,29 @@ document.addEventListener("DOMContentLoaded", () => {
     tabStudent.addEventListener("click", switchToStudentView);
     tabAdmin.addEventListener("click", switchToAdminView);
 
+    const showApplyBtn = document.getElementById("show-apply-view-btn");
+    if (showApplyBtn) {
+        showApplyBtn.addEventListener("click", () => {
+            adminView.style.display = "none";
+            if (applyCounselorView) applyCounselorView.style.display = "flex";
+        });
+    }
+
+    const backToLoginBtn = document.getElementById("back-to-login-btn");
+    if (backToLoginBtn) {
+        backToLoginBtn.addEventListener("click", () => {
+            if (applyCounselorView) applyCounselorView.style.display = "none";
+            switchToAdminView();
+        });
+    }
+
     // -------------------------------------------------------------
     // 5. STUDENT-TO-STUDENT WEBRTC LIVE VOICE CHAT CONTROLLER
     // -------------------------------------------------------------
     class PeerVoiceChatManager {
-        constructor() {
+        constructor(config = {}) {
+            this.mode = config.mode || 'peer';
+            this.customSignalSender = config.signalSender || null;
             this.ws = null;
             this.peerConnection = null;
             this.localStream = null;
@@ -213,8 +264,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            // 2. Connect to WebSocket signaling server
-            this.connectSignalingServer();
+            if (this.mode === 'peer') {
+                this.connectSignalingServer();
+            } else {
+                await this.initiatePeerConnection(arguments.length > 0 ? arguments[0] : true);
+            }
+        }
+
+        sendSignal(data) {
+            if (this.customSignalSender) {
+                this.customSignalSender(data);
+            } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify(data));
+            }
         }
 
         connectSignalingServer() {
@@ -307,11 +369,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // Handle ICE candidates
             this.peerConnection.onicecandidate = (event) => {
-                if (event.candidate && this.ws && this.ws.readyState === WebSocket.OPEN) {
-                    this.ws.send(JSON.stringify({
+                if (event.candidate) {
+                    this.sendSignal({
                         type: "ice-candidate",
                         candidate: event.candidate
-                    }));
+                    });
                 }
             };
 
@@ -322,12 +384,10 @@ document.addEventListener("DOMContentLoaded", () => {
                         offerToReceiveAudio: true
                     });
                     await this.peerConnection.setLocalDescription(offer);
-                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                        this.ws.send(JSON.stringify({
-                            type: "offer",
-                            offer: offer
-                        }));
-                    }
+                    this.sendSignal({
+                        type: "offer",
+                        offer: offer
+                    });
                 } catch (e) {
                     console.error("Create offer error:", e);
                 }
@@ -340,12 +400,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
                 const answer = await this.peerConnection.createAnswer();
                 await this.peerConnection.setLocalDescription(answer);
-                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                    this.ws.send(JSON.stringify({
-                        type: "answer",
-                        answer: answer
-                    }));
-                }
+                this.sendSignal({
+                    type: "answer",
+                    answer: answer
+                });
             } catch (e) {
                 console.error("Handle offer error:", e);
             }
@@ -548,9 +606,160 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const peerVoiceChatManager = new PeerVoiceChatManager();
 
+    // -------------------------------------------------------------
+    // Peer-to-Peer Text Chat Manager
+    // -------------------------------------------------------------
+    class PeerTextChatManager {
+        constructor() {
+            this.ws = null;
+            this.active = false;
+            this.peerAlias = null;
+            this.peerTextConnectedBanner = document.getElementById("peer-text-connected-banner");
+            this.peerTextStatus = document.getElementById("peer-text-status");
+        }
+
+        isActive() {
+            return this.active;
+        }
+
+        startTextChat() {
+            if (this.ws) this.ws.close();
+            
+            if (heroIntro) heroIntro.style.display = "none";
+            if (this.peerTextConnectedBanner) this.peerTextConnectedBanner.style.display = "flex";
+            if (this.peerTextStatus) this.peerTextStatus.textContent = "Finding an anonymous campus peer...";
+            this.active = true;
+
+            appendMessage("coach", "Looking for a peer to chat with...", "System");
+
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            this.ws = new WebSocket(`${protocol}//${window.location.host}/ws/chat-room?session_id=${encodeURIComponent(sessionId)}&alias=${encodeURIComponent(currentAlias)}`);
+            
+            this.ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === "matched") {
+                    this.peerAlias = data.peer_alias;
+                    if (this.peerTextStatus) this.peerTextStatus.textContent = `Connected to Anonymous Peer.`;
+                    appendMessage("coach", `You are now connected to an anonymous peer. Say hi!`, "System");
+                } else if (data.type === "waiting") {
+                    if (this.peerTextStatus) this.peerTextStatus.textContent = "Finding an anonymous campus peer...";
+                } else if (data.type === "chat_message") {
+                    appendMessage("coach", data.message, "Peer");
+                } else if (data.type === "peer_disconnected") {
+                    if (this.peerTextStatus) this.peerTextStatus.textContent = "Peer disconnected. Finding a new peer...";
+                    appendMessage("coach", "Your peer left the chat.", "System");
+                    this.startTextChat(); // re-queue
+                }
+            };
+            
+            this.ws.onclose = () => {
+                if (this.active) {
+                    if (this.peerTextStatus) this.peerTextStatus.textContent = "Disconnected from matchmaking.";
+                }
+            };
+        }
+
+        sendMessage(text) {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({
+                    type: "chat_message",
+                    message: text
+                }));
+            }
+        }
+
+        nextPeer() {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({ type: "next-peer" }));
+                if (this.peerTextStatus) this.peerTextStatus.textContent = "Finding an anonymous campus peer...";
+                appendMessage("coach", "Looking for a new peer...", "System");
+            } else {
+                this.startTextChat();
+            }
+        }
+
+        disconnect() {
+            this.active = false;
+            if (this.ws) {
+                this.ws.close();
+                this.ws = null;
+            }
+            if (this.peerTextConnectedBanner) this.peerTextConnectedBanner.style.display = "none";
+            appendMessage("coach", "Disconnected from peer text chat. You are back with the CBT coach.", "System");
+        }
+    }
+
+    const peerTextChatManager = new PeerTextChatManager();
+
+    const startChatBtn = document.getElementById("start-chat-btn");
+    const heroStartChatBtn = document.getElementById("hero-start-chat-btn");
+    const disconnectPeerTextBtn = document.getElementById("disconnect-peer-text-btn");
+    const nextPeerTextBtn = document.getElementById("next-peer-text-btn");
+
+    if (startChatBtn) startChatBtn.addEventListener("click", () => { switchToStudentView(); peerTextChatManager.startTextChat(); });
+    if (heroStartChatBtn) heroStartChatBtn.addEventListener("click", () => { switchToStudentView(); peerTextChatManager.startTextChat(); });
+    if (disconnectPeerTextBtn) disconnectPeerTextBtn.addEventListener("click", () => peerTextChatManager.disconnect());
+    if (nextPeerTextBtn) nextPeerTextBtn.addEventListener("click", () => peerTextChatManager.nextPeer());
+
     // Voice Call Triggers
-    startCallBtn.addEventListener("click", () => peerVoiceChatManager.startVoiceCall());
+    if (startCallBtn) startCallBtn.addEventListener("click", () => peerVoiceChatManager.startVoiceCall());
     if (heroCallBtn) heroCallBtn.addEventListener("click", () => peerVoiceChatManager.startVoiceCall());
+    if (inputCallBtn) inputCallBtn.addEventListener("click", () => peerVoiceChatManager.startVoiceCall());
+
+    if (contactCounselorBtn) {
+        const contactModal = document.getElementById("contact-modal");
+        const closeContactModal = document.getElementById("close-contact-modal");
+        const requestChatBtn = document.getElementById("request-chat-btn");
+        const requestVoiceBtn = document.getElementById("request-voice-btn");
+        const contactReasonInput = document.getElementById("contact-reason");
+
+        if (contactModal) {
+            contactCounselorBtn.addEventListener("click", () => {
+                contactReasonInput.value = "";
+                contactModal.style.display = "flex";
+            });
+
+            closeContactModal.addEventListener("click", () => {
+                contactModal.style.display = "none";
+            });
+
+            const sendContactRequest = async (mode) => {
+                const reason = contactReasonInput.value.trim() || "Student wants to talk.";
+                contactModal.style.display = "none";
+                contactCounselorBtn.textContent = "Requesting...";
+                contactCounselorBtn.disabled = true;
+
+                try {
+                    const res = await fetch("/api/chat/escalate", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            session_id: sessionId,
+                            alias: currentAlias,
+                            reason: reason,
+                            mode: mode
+                        })
+                    });
+                    
+                    if (res.ok) {
+                        alert(`A counselor has been alerted for a ${mode} session. Please stay on this page, they will join shortly.`);
+                        contactCounselorBtn.textContent = "Counselor Alerted";
+                    } else {
+                        contactCounselorBtn.textContent = "Contact Counselor Directly";
+                        contactCounselorBtn.disabled = false;
+                        alert("Failed to send request. Please try again.");
+                    }
+                } catch (err) {
+                    console.error("Escalation error:", err);
+                    contactCounselorBtn.textContent = "Contact Counselor Directly";
+                    contactCounselorBtn.disabled = false;
+                }
+            };
+
+            requestChatBtn.addEventListener("click", () => sendContactRequest("chat"));
+            requestVoiceBtn.addEventListener("click", () => sendContactRequest("voice"));
+        }
+    }
     if (heroVoiceTrigger) heroVoiceTrigger.addEventListener("click", (e) => {
         if (e.target !== heroCallBtn) peerVoiceChatManager.startVoiceCall();
     });
@@ -590,6 +799,11 @@ document.addEventListener("DOMContentLoaded", () => {
         messageInput.value = "";
         messageInput.style.height = "auto";
         sendButton.disabled = true;
+
+        if (peerTextChatManager.isActive()) {
+            peerTextChatManager.sendMessage(text);
+            return;
+        }
 
         setTyping(true);
 
@@ -656,7 +870,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     }
 
-    function appendMessage(role, text) {
+    function appendMessage(role, text, customName = null) {
         const unit = document.createElement("div");
         unit.className = `message-unit ${role}`;
 
@@ -666,7 +880,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const time = document.createElement("div");
         time.className = "message-time";
-        time.textContent = `${role === "user" ? (currentAlias || "You") : "Peer Coach"} - ${formatTime()}`;
+        time.textContent = `${customName ? customName : (role === "user" ? (currentAlias || "You") : "Peer Coach")} - ${formatTime()}`;
 
         unit.appendChild(bubble);
         unit.appendChild(time);
@@ -856,7 +1070,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function renderSessions(sessions) {
         if (!sessions || sessions.length === 0) {
-            sessionsTableBody.innerHTML = '<tr><td colspan="4" class="text-center">No active student sessions.</td></tr>';
+            sessionsTableBody.innerHTML = '<tr><td colspan="5" class="text-center">No active student sessions.</td></tr>';
             return;
         }
 
@@ -868,7 +1082,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 <td><code>${s.session_id}</code></td>
                 <td>${s.messages} msg(s)</td>
                 <td>${s.last_active}</td>
+                <td><button class="btn-secondary join-counselor-chat-btn" data-id="${s.full_id}" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Join Chat</button></td>
             `;
+            tr.querySelector('.join-counselor-chat-btn').addEventListener('click', () => {
+                openCounselorChat(s.full_id);
+            });
             sessionsTableBody.appendChild(tr);
         });
     }
@@ -883,4 +1101,371 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     checkAlertBadge();
+
+    // -------------------------------------------------------------
+    // 9. Counselor Live Chat Integration
+    // -------------------------------------------------------------
+    
+    let studentWS = null;
+    let counselorActive = false;
+    const counselorConnectedBanner = document.getElementById("counselor-connected-banner");
+
+    function initStudentPersistentWS() {
+        if (studentWS) studentWS.close();
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        studentWS = new WebSocket(`${protocol}//${window.location.host}/ws/student?session_id=${encodeURIComponent(sessionId)}`);
+        
+        studentWS.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === "counselor_chat") {
+                counselorActive = true;
+                if (counselorConnectedBanner) counselorConnectedBanner.style.display = "flex";
+                if (heroIntro) heroIntro.style.display = "none";
+                
+                const msgEl = document.createElement("div");
+                msgEl.className = "message ai-message";
+                msgEl.innerHTML = `
+                    <div class="message-content" style="border: 1px solid #10b981;">
+                        <span class="pastel-badge green" style="margin-bottom:0.5rem;display:inline-block">Human Counselor</span><br/>
+                        ${data.message.replace(/\n/g, '<br/>')}
+                    </div>
+                `;
+                chatMessages.appendChild(msgEl);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            } else if (data.type === "counselor_webrtc_signal") {
+                if (!window.directVoiceChatManager) {
+                    window.directVoiceChatManager = new PeerVoiceChatManager({
+                        mode: 'student',
+                        signalSender: (signalData) => {
+                            if (studentWS && studentWS.readyState === WebSocket.OPEN) {
+                                studentWS.send(JSON.stringify(signalData));
+                            }
+                        }
+                    });
+                    window.directVoiceChatManager.startVoiceCall(false, "Counselor");
+                }
+                window.directVoiceChatManager.handleSignalingMessage(data.signal);
+            }
+        };
+    }
+    
+    initStudentPersistentWS();
+
+    if (studentAliasBadge) {
+        studentAliasBadge.addEventListener("click", () => {
+            setTimeout(initStudentPersistentWS, 500); 
+        });
+    }
+    
+    chatForm.addEventListener("submit", (e) => {
+        if (counselorActive && studentWS && studentWS.readyState === WebSocket.OPEN) {
+            e.preventDefault(); 
+            e.stopPropagation();
+            
+            const msg = messageInput.value.trim();
+            if (!msg) return;
+            
+            const msgEl = document.createElement("div");
+            msgEl.className = "message user-message";
+            msgEl.innerHTML = `<div class="message-content">${msg}</div>`;
+            chatMessages.appendChild(msgEl);
+            messageInput.value = "";
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            studentWS.send(JSON.stringify({ type: "chat_reply", message: msg }));
+        }
+    }, true); 
+
+    let counselorWS = null;
+    let activeTargetSessionId = null;
+    
+    const counselorChatPanel = document.getElementById("counselor-chat-panel");
+    const closeCounselorChatBtn = document.getElementById("close-counselor-chat-btn");
+    const counselorChatMessages = document.getElementById("counselor-chat-messages");
+    const counselorChatForm = document.getElementById("counselor-chat-form");
+    const counselorMessageInput = document.getElementById("counselor-message-input");
+    const counselorStartCallBtn = document.getElementById("counselor-start-call-btn");
+
+    if (counselorStartCallBtn) {
+        counselorStartCallBtn.addEventListener("click", () => {
+            if (!activeTargetSessionId || !counselorWS) return;
+            window.directVoiceChatManager = new PeerVoiceChatManager({
+                mode: 'counselor',
+                signalSender: (signalData) => {
+                    signalData.session_id = activeTargetSessionId;
+                    if (counselorWS && counselorWS.readyState === WebSocket.OPEN) {
+                        counselorWS.send(JSON.stringify(signalData));
+                    }
+                }
+            });
+            window.directVoiceChatManager.startVoiceCall(true, "Student");
+        });
+    }
+
+    function initCounselorWS() {
+        if (counselorWS) counselorWS.close();
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        counselorWS = new WebSocket(`${protocol}//${window.location.host}/ws/counselor`);
+        
+        counselorWS.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === "student_chat_reply" && data.session_id === activeTargetSessionId) {
+                const msgEl = document.createElement("div");
+                msgEl.className = "message ai-message";
+                msgEl.innerHTML = `
+                    <div class="message-content">
+                        <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; color: var(--text-muted);">Student</strong>
+                        ${data.message}
+                    </div>
+                `;
+                counselorChatMessages.appendChild(msgEl);
+                counselorChatMessages.scrollTop = counselorChatMessages.scrollHeight;
+            } else if (data.type === "student_webrtc_signal" && data.session_id === activeTargetSessionId) {
+                if (window.directVoiceChatManager) {
+                    window.directVoiceChatManager.handleSignalingMessage(data.signal);
+                }
+            }
+        };
+    }
+
+    function openCounselorChat(targetSessionId) {
+        if (!counselorWS) initCounselorWS();
+        activeTargetSessionId = targetSessionId;
+        if (counselorChatPanel) counselorChatPanel.style.display = "block";
+        if (counselorChatMessages) {
+            counselorChatMessages.innerHTML = '<div class="empty-feed-text">Session connected. Send a message to start.</div>';
+            counselorChatMessages.style.display = "flex";
+            counselorChatMessages.style.flexDirection = "column";
+        }
+        if (counselorChatPanel) counselorChatPanel.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    if (closeCounselorChatBtn) {
+        closeCounselorChatBtn.addEventListener("click", () => {
+            counselorChatPanel.style.display = "none";
+            activeTargetSessionId = null;
+        });
+    }
+
+    if (counselorChatForm) {
+        counselorChatForm.addEventListener("submit", (e) => {
+            e.preventDefault();
+            const msg = counselorMessageInput.value.trim();
+            if (!msg || !activeTargetSessionId || !counselorWS) return;
+            
+            const msgEl = document.createElement("div");
+            msgEl.className = "message user-message";
+            msgEl.innerHTML = `
+                <div class="message-content">
+                    <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; opacity: 0.8;">You</strong>
+                    ${msg}
+                </div>
+            `;
+            counselorChatMessages.appendChild(msgEl);
+            counselorMessageInput.value = "";
+            counselorChatMessages.scrollTop = counselorChatMessages.scrollHeight;
+            
+            counselorWS.send(JSON.stringify({
+                type: "counselor_chat",
+                session_id: activeTargetSessionId,
+                message: msg
+            }));
+        });
+    }
+
+    const counselorForm = document.getElementById("counselor-application-form");
+    if (counselorForm) {
+        counselorForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const submitBtn = counselorForm.querySelector("button[type='submit']");
+            const originalText = submitBtn.textContent;
+            submitBtn.textContent = "Submitting...";
+            submitBtn.disabled = true;
+
+            const formData = new FormData(counselorForm);
+            const payload = {
+                full_name: formData.get("full_name"),
+                email: formData.get("email"),
+                phone: formData.get("phone"),
+                highest_degree: formData.get("highest_degree"),
+                degree_field: formData.get("degree_field"),
+                university: formData.get("university"),
+                graduation_year: parseInt(formData.get("graduation_year")) || new Date().getFullYear(),
+                certifications: formData.get("certifications") || "",
+                years_of_experience: parseInt(formData.get("years_of_experience")) || 0,
+                current_role: formData.get("current_role"),
+                specializations: formData.getAll("specializations").join(", "),
+                motivation: formData.get("motivation"),
+                background_info: formData.get("background_info") || "",
+                terms_accepted: formData.get("terms_accepted") === "on"
+            };
+
+            try {
+                const response = await fetch("/api/counselor/apply", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    counselorForm.style.display = "none";
+                    const statusSection = document.querySelector("#counselor-application-status");
+                    if (statusSection) statusSection.style.display = "none";
+                    
+                    const verificationSection = document.getElementById("post-submission-verification");
+                    verificationSection.style.display = "block";
+                    
+                    document.getElementById("post-email-display").textContent = payload.email;
+                    window.currentApplicationId = result.application_id;
+                    window.currentEmail = payload.email;
+                    
+                    if (payload.phone && payload.phone.trim().length > 0) {
+                        document.getElementById("post-phone-verification").style.display = "block";
+                        document.getElementById("post-phone-display").textContent = payload.phone;
+                        window.currentPhone = payload.phone;
+                    }
+                    
+                    setupPostVerification();
+                } else {
+                    alert("Error: " + (result.detail || "Failed to submit application."));
+                    submitBtn.textContent = originalText;
+                    submitBtn.disabled = false;
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error. Please try again later.");
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+            }
+        });
+    }
+
+    function setupPostVerification() {
+        const verifyEmailBtn = document.getElementById("post-verify-email-btn");
+        const confirmEmailBtn = document.getElementById("post-confirm-email-otp-btn");
+        const emailOtpContainer = document.getElementById("post-email-otp-container");
+        const emailOtpInput = document.getElementById("post-email-otp-input");
+        const emailHint = document.getElementById("post-email-hint");
+        const emailVerified = document.getElementById("post-email-verified");
+
+        const verifyPhoneBtn = document.getElementById("post-verify-phone-btn");
+        const confirmPhoneBtn = document.getElementById("post-confirm-phone-otp-btn");
+        const phoneOtpContainer = document.getElementById("post-phone-otp-container");
+        const phoneOtpInput = document.getElementById("post-phone-otp-input");
+        const phoneHint = document.getElementById("post-phone-hint");
+        const phoneVerified = document.getElementById("post-phone-verified");
+
+        const finalizeBtn = document.getElementById("finalize-application-btn");
+
+        function checkCompletion() {
+            const isEmailVerified = emailVerified.value === "true";
+            const needsPhone = !!window.currentPhone;
+            const isPhoneVerified = phoneVerified.value === "true";
+
+            if (isEmailVerified && (!needsPhone || isPhoneVerified)) {
+                finalizeBtn.style.display = "block";
+            }
+        }
+
+        async function sendOtp(type, target, btn, container, hint) {
+            btn.textContent = "Sending...";
+            btn.disabled = true;
+            try {
+                const res = await fetch("/api/counselor/verify/send", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ type, target })
+                });
+                if (res.ok) {
+                    container.style.display = "flex";
+                    btn.textContent = "Sent";
+                    hint.textContent = "Code sent! Check backend logs for the mock OTP.";
+                } else {
+                    const data = await res.json();
+                    alert(data.detail || "Failed to send code");
+                    btn.textContent = "Send Code";
+                    btn.disabled = false;
+                }
+            } catch (e) {
+                alert("Network error.");
+                btn.textContent = "Send Code";
+                btn.disabled = false;
+            }
+        }
+
+        verifyEmailBtn.addEventListener("click", () => sendOtp("email", window.currentEmail, verifyEmailBtn, emailOtpContainer, emailHint));
+        if (verifyPhoneBtn) verifyPhoneBtn.addEventListener("click", () => sendOtp("phone", window.currentPhone, verifyPhoneBtn, phoneOtpContainer, phoneHint));
+
+        confirmEmailBtn.addEventListener("click", () => {
+            if (emailOtpInput.value.trim().length === 6) {
+                emailVerified.value = "true";
+                emailOtpContainer.innerHTML = `<span style="color: var(--text-primary); font-family: var(--font-mono); font-size: 0.85rem; letter-spacing: 0.05em; text-transform: uppercase;">[Verified]</span>`;
+                emailHint.style.display = "none";
+                checkCompletion();
+            } else {
+                alert("Please enter a 6-digit code.");
+            }
+        });
+
+        if (confirmPhoneBtn) {
+            confirmPhoneBtn.addEventListener("click", () => {
+                if (phoneOtpInput.value.trim().length === 6) {
+                    phoneVerified.value = "true";
+                    phoneOtpContainer.innerHTML = `<span style="color: var(--text-primary); font-family: var(--font-mono); font-size: 0.85rem; letter-spacing: 0.05em; text-transform: uppercase;">[Verified]</span>`;
+                    phoneHint.style.display = "none";
+                    checkCompletion();
+                } else {
+                    alert("Please enter a 6-digit code.");
+                }
+            });
+        }
+
+        finalizeBtn.addEventListener("click", async () => {
+            finalizeBtn.textContent = "Verifying & Approving...";
+            finalizeBtn.disabled = true;
+
+            try {
+                const payload = {
+                    application_id: window.currentApplicationId,
+                    email: window.currentEmail,
+                    email_otp: emailOtpInput.value.trim(),
+                };
+                
+                if (window.currentPhone) {
+                    payload.phone = window.currentPhone;
+                    payload.phone_otp = phoneOtpInput.value.trim();
+                }
+
+                const res = await fetch("/api/counselor/verify-application", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await res.json();
+                if (res.ok) {
+                    document.getElementById("post-email-verification").style.display = "none";
+                    document.getElementById("post-phone-verification").style.display = "none";
+                    finalizeBtn.style.display = "none";
+                    
+                    const revealContainer = document.getElementById("passkey-reveal-container");
+                    const passkeyDisplay = document.getElementById("passkey-display");
+                    
+                    passkeyDisplay.textContent = data.passkey;
+                    revealContainer.style.display = "block";
+                } else {
+                    alert("Error: " + (data.detail || "Verification failed."));
+                    finalizeBtn.textContent = "Complete Application";
+                    finalizeBtn.disabled = false;
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error.");
+                finalizeBtn.textContent = "Complete Application";
+                finalizeBtn.disabled = false;
+            }
+        });
+    }
 });

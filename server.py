@@ -18,4 +18,11 @@ logger = logging.getLogger("peerspace")
 
 if __name__ == "__main__":
     logger.info("Starting PeerSpace server on http://%s:%d", HOST, PORT)
-    uvicorn.run("backend.app:app", host=HOST, port=PORT, reload=False)
+    uvicorn.run(
+        "backend.app:app", 
+        host=HOST, 
+        port=PORT, 
+        reload=False,
+        proxy_headers=True,
+        forwarded_allow_ips="*"
+    )

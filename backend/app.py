@@ -15,6 +15,8 @@ from backend.routes.auth_routes import router as auth_router
 from backend.routes.chat_routes import router as chat_router
 from backend.routes.admin_routes import router as admin_router
 from backend.routes.voice_routes import router as voice_router
+from backend.routes.counselor_routes import router as counselor_router
+from backend.routes.counselor_ws_routes import router as counselor_ws_router
 
 logger = logging.getLogger("peerspace.app")
 
@@ -45,6 +47,8 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(admin_router)
     app.include_router(voice_router)
+    app.include_router(counselor_router)
+    app.include_router(counselor_ws_router)
 
     # Static File Mounting
     if FRONTEND_DIR.exists():
