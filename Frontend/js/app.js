@@ -1251,9 +1251,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 const inviteBanner = document.getElementById("counselor-voice-invite-banner");
                 if (inviteBanner) {
                     inviteBanner.style.display = "flex";
-                    document.getElementById("accept-counselor-call-btn").onclick = () => {
+                    document.getElementById("accept-counselor-call-btn").onclick = async () => {
                         inviteBanner.style.display = "none";
-                        studentWS.send(JSON.stringify({ type: "student_voice_accept" }));
                         window.directVoiceChatManager = new PeerVoiceChatManager({
                             mode: 'student',
                             signalSender: (signalData) => {
@@ -1262,7 +1261,8 @@ document.addEventListener("DOMContentLoaded", () => {
                                 }
                             }
                         });
-                        window.directVoiceChatManager.startVoiceCall(false, "Counselor");
+                        await window.directVoiceChatManager.startVoiceCall(false, "Counselor");
+                        studentWS.send(JSON.stringify({ type: "student_voice_accept" }));
                     };
                     document.getElementById("decline-counselor-call-btn").onclick = () => {
                         inviteBanner.style.display = "none";
