@@ -60,6 +60,10 @@ class ResetPayload(BaseModel):
 class AlertActionPayload(BaseModel):
     action: str = Field(..., min_length=1)
 
+class ChatInterventionPayload(BaseModel):
+    session_id: str
+    message: str = Field(..., min_length=1)
+
 class VoiceEscalatePayload(BaseModel):
     session_id: str
     alias: str

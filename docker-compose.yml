@@ -9,6 +9,7 @@ services:
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
       - COUNSELOR_PASSKEY=${COUNSELOR_PASSKEY}
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/peerspace
       - PORT=8000
       - HOST=0.0.0.0
     restart: unless-stopped

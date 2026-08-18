@@ -37,6 +37,11 @@ async def student_persistent_ws(websocket: WebSocket):
                     "session_id": session_id,
                     "signal": data
                 })
+            elif msg_type in ["student_voice_accept", "student_voice_decline"]:
+                await counselor_ws_manager.send_to_counselors({
+                    "type": msg_type,
+                    "session_id": session_id
+                })
     except WebSocketDisconnect:
         await counselor_ws_manager.disconnect_student(session_id)
     except Exception:
@@ -65,6 +70,10 @@ async def counselor_persistent_ws(websocket: WebSocket):
                 await counselor_ws_manager.send_to_student(target_session, {
                     "type": "counselor_webrtc_signal",
                     "signal": data
+                })
+            elif msg_type == "counselor_voice_invite":
+                await counselor_ws_manager.send_to_student(target_session, {
+                    "type": "counselor_voice_invite"
                 })
     except WebSocketDisconnect:
         await counselor_ws_manager.disconnect_counselor(websocket)

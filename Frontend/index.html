@@ -103,6 +103,26 @@
                 </div>
             </div>
 
+            <!-- Counselor Voice Invite Banner (Hidden by default) -->
+            <div id="counselor-voice-invite-banner" style="display: none; background: var(--bg-surface-elevated); color: var(--text-primary); padding: 1rem; border: 1px solid var(--border-subtle); margin-bottom: 1rem; border-radius: var(--radius-md); align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="pastel-badge blue">Voice Call</span>
+                    <strong style="font-family: var(--font-sans); font-size: 0.9rem;">A campus counselor is requesting a voice call with you.</strong>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button id="accept-counselor-call-btn" class="action-btn-voice" style="padding: 0.3rem 0.8rem; background: var(--pastel-green-bg); color: var(--pastel-green-text); border-color: var(--pastel-green-text); font-size: 0.8rem;">Accept</button>
+                    <button id="decline-counselor-call-btn" class="action-btn-voice" style="padding: 0.3rem 0.8rem; background: var(--pastel-red-bg); color: var(--pastel-red-text); border-color: var(--pastel-red-text); font-size: 0.8rem;">Decline</button>
+                </div>
+            </div>
+
+            <!-- Counselor Waiting Banner (Hidden by default) -->
+            <div id="counselor-waiting-banner" style="display: none; background: var(--bg-surface-elevated); color: var(--text-primary); padding: 1rem; border: 1px solid var(--border-subtle); margin-bottom: 1rem; border-radius: var(--radius-md); align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="pastel-badge" style="background-color: #ffecd1; color: #cc7722; border-color: #ffe0b2;">Waiting</span>
+                    <strong id="counselor-waiting-text" style="font-family: var(--font-sans); font-size: 0.9rem;">Waiting for a counselor to join...</strong>
+                </div>
+            </div>
+
             <!-- Peer Text Connected Banner (Hidden by default) -->
             <div id="peer-text-connected-banner" style="display: none; background: var(--bg-surface-elevated); color: var(--text-primary); padding: 1rem; border: 1px solid var(--border-subtle); margin-bottom: 1rem; border-radius: var(--radius-md); align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 0.5rem;">

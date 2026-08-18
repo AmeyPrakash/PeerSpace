@@ -1511,3 +1511,30 @@ kbd {
 .verify-group .form-input {
     flex: 1;
 }
+
+/* Responsive Topbar for Mobile */
+@media (max-width: 768px) {
+    .topbar {
+        flex-wrap: wrap;
+        padding: 0.5rem;
+    }
+    .brand {
+        flex: 1 1 100%;
+        justify-content: space-between;
+        margin-bottom: 0.5rem;
+    }
+    .nav-cluster {
+        flex: 1 1 auto;
+        justify-content: flex-start;
+        overflow-x: auto;
+        padding-bottom: 0.25rem;
+    }
+    .topbar-actions {
+        flex: 1 1 auto;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+    .action-btn-voice span {
+        display: none; /* Hide text on mobile for peer buttons to save space */
+    }
+}
