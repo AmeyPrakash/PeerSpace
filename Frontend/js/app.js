@@ -596,6 +596,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 this.localStream.getTracks().forEach((track) => track.stop());
                 this.localStream = null;
             }
+            if (remotePeerAudio) {
+                remotePeerAudio.pause();
+                remotePeerAudio.srcObject = null;
+            }
             if (this.timerInterval) clearInterval(this.timerInterval);
             if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
 
@@ -792,10 +796,22 @@ document.addEventListener("DOMContentLoaded", () => {
     if (inputCallBtn) inputCallBtn.addEventListener("click", () => peerVoiceChatManager.startVoiceCall());
 
     // In-Call Controls
-    callMuteBtn.addEventListener("click", () => peerVoiceChatManager.toggleMute());
-    callNextPeerBtn.addEventListener("click", () => peerVoiceChatManager.nextPeer());
-    callCounselorAlertBtn.addEventListener("click", () => peerVoiceChatManager.alertCounselor());
-    endVoiceCallBtn.addEventListener("click", () => peerVoiceChatManager.endVoiceCall());
+    function getActiveVoiceManager() {
+        if (window.directVoiceChatManager && (window.directVoiceChatManager.localStream || window.directVoiceChatManager.peerConnection)) {
+            return window.directVoiceChatManager;
+        }
+        return peerVoiceChatManager;
+    }
+
+    callMuteBtn.addEventListener("click", () => getActiveVoiceManager().toggleMute());
+    callNextPeerBtn.addEventListener("click", () => getActiveVoiceManager().nextPeer());
+    callCounselorAlertBtn.addEventListener("click", () => getActiveVoiceManager().alertCounselor());
+    endVoiceCallBtn.addEventListener("click", () => {
+        getActiveVoiceManager().endVoiceCall();
+        if (window.directVoiceChatManager) {
+            window.directVoiceChatManager = null;
+        }
+    });
 
     // -------------------------------------------------------------
     // 6. Student Text Chat Interactions (with AI CBT Peer Coach)
@@ -970,7 +986,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             const data = await res.json();
-            adminToken = data.token;
+            adminToken = passkey;
             sessionStorage.setItem("peerspace_admin_token", adminToken);
 
             adminAuthGate.style.display = "none";
@@ -982,24 +998,32 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    function forceAdminLogout() {
+        sessionStorage.removeItem("peerspace_admin_token");
+        adminToken = null;
+        if (alertsPollInterval) clearInterval(alertsPollInterval);
+        
+        adminPasskeyInput.value = "";
+        adminAuthGate.style.display = "flex";
+        adminMainContent.style.display = "none";
+        switchToStudentView();
+    }
+
     if (adminLogoutBtn) {
-        adminLogoutBtn.addEventListener("click", () => {
-            sessionStorage.removeItem("peerspace_admin_token");
-            adminToken = null;
-            if (alertsPollInterval) clearInterval(alertsPollInterval);
-            
-            adminPasskeyInput.value = "";
-            adminAuthGate.style.display = "flex";
-            adminMainContent.style.display = "none";
-            switchToStudentView();
-        });
+        adminLogoutBtn.addEventListener("click", () => forceAdminLogout());
     }
 
     refreshAlertsBtn.addEventListener("click", () => loadAdminDashboard());
 
     async function loadAdminDashboard() {
         try {
-            const alertsRes = await fetch("/api/admin/alerts");
+            const alertsRes = await fetch("/api/admin/alerts", {
+                headers: { "x-admin-token": adminToken }
+            });
+            if (alertsRes.status === 401) {
+                forceAdminLogout();
+                return;
+            }
             const alertsData = await alertsRes.json();
 
             statPendingAlerts.textContent = alertsData.pending_count || 0;
@@ -1014,7 +1038,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             renderAlerts(alertsData.alerts || []);
 
-            const sessionsRes = await fetch("/api/admin/sessions");
+            const sessionsRes = await fetch("/api/admin/sessions", {
+                headers: { "x-admin-token": adminToken }
+            });
             const sessionsData = await sessionsRes.json();
             statActiveSessions.textContent = sessionsData.total_active || 0;
             renderSessions(sessionsData.active_sessions || []);
@@ -1025,7 +1051,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function checkAlertBadge() {
         try {
-            const alertsRes = await fetch("/api/admin/alerts");
+            const alertsRes = await fetch("/api/admin/alerts", {
+                headers: { "x-admin-token": adminToken }
+            });
+            if (alertsRes.status === 401) {
+                forceAdminLogout();
+                return;
+            }
             const data = await alertsRes.json();
             if (data.pending_count > 0) {
                 adminAlertCountBadge.textContent = data.pending_count;
@@ -1122,7 +1154,10 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const res = await fetch(`/api/admin/alerts/${alertId}/action`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "x-admin-token": adminToken
+                },
                 body: JSON.stringify({ action: action })
             });
             if (res.ok) loadAdminDashboard();
@@ -1180,7 +1215,22 @@ document.addEventListener("DOMContentLoaded", () => {
         
         studentWS.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            if (data.type === "counselor_chat") {
+            if (data.type === "counselor_join_text") {
+                counselorActive = true;
+                if (voiceCallOverlay && voiceCallOverlay.style.display === "flex") {
+                    if (typeof getActiveVoiceManager === 'function') getActiveVoiceManager().endVoiceCall();
+                }
+                if (counselorConnectedBanner) counselorConnectedBanner.style.display = "flex";
+                if (heroIntro) heroIntro.style.display = "none";
+                const counselorWaitingBanner = document.getElementById("counselor-waiting-banner");
+                if (counselorWaitingBanner) counselorWaitingBanner.style.display = "none";
+                
+                const msgEl = document.createElement("div");
+                msgEl.className = "message ai-message";
+                msgEl.innerHTML = `<div class="message-content" style="border: 1px solid #10b981; text-align: center; margin-bottom: 10px;"><strong>A Human Counselor has joined the chat.</strong></div>`;
+                chatMessages.appendChild(msgEl);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            } else if (data.type === "counselor_chat") {
                 counselorActive = true;
                 if (counselorConnectedBanner) counselorConnectedBanner.style.display = "flex";
                 if (heroIntro) heroIntro.style.display = "none";
@@ -1284,8 +1334,14 @@ document.addEventListener("DOMContentLoaded", () => {
     function initCounselorWS() {
         if (counselorWS) counselorWS.close();
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        counselorWS = new WebSocket(`${protocol}//${window.location.host}/ws/counselor`);
+        counselorWS = new WebSocket(`${protocol}//${window.location.host}/ws/counselor?token=${encodeURIComponent(adminToken)}`);
         
+        counselorWS.onclose = (e) => {
+            if (e.code === 1008) {
+                forceAdminLogout();
+            }
+        };
+
         counselorWS.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === "student_chat_reply" && data.session_id === activeTargetSessionId) {
@@ -1332,6 +1388,18 @@ document.addEventListener("DOMContentLoaded", () => {
     function openCounselorChat(targetSessionId) {
         if (!counselorWS) initCounselorWS();
         activeTargetSessionId = targetSessionId;
+        
+        // Notify student that counselor has joined
+        if (counselorWS && counselorWS.readyState === WebSocket.OPEN) {
+            counselorWS.send(JSON.stringify({ type: "counselor_join_text", session_id: activeTargetSessionId }));
+        } else {
+            setTimeout(() => {
+                if (counselorWS && counselorWS.readyState === WebSocket.OPEN) {
+                    counselorWS.send(JSON.stringify({ type: "counselor_join_text", session_id: activeTargetSessionId }));
+                }
+            }, 500);
+        }
+
         if (counselorChatPanel) counselorChatPanel.style.display = "block";
         if (counselorChatMessages) {
             counselorChatMessages.innerHTML = '<div class="empty-feed-text">Session connected. Send a message to start.</div>';

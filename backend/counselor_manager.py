@@ -1,66 +1,19 @@
 """
 PeerSpace Counselor Application Manager
-Handles counselor applications with review workflow.
+Handles counselor applications with review workflow using SQLAlchemy.
 """
 
 import time
 import uuid
-import json
-import os
-from collections import OrderedDict
 from typing import Dict, List, Tuple
-from dataclasses import dataclass, asdict
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+from datetime import datetime, timezone
 
-@dataclass
-class CounselorApplicationEntry:
-    """Represents a counselor application."""
-    application_id: str
-    full_name: str
-    email: str
-    phone: str
-    highest_degree: str
-    degree_field: str
-    university: str
-    graduation_year: int
-    certifications: str
-    years_of_experience: int
-    current_role: str
-    specializations: str
-    motivation: str
-    background_info: str
-    submitted_at: float
-    status: str = "pending"  # pending, under_review, approved, rejected
-    reviewed_at: float = None
-    reviewer_notes: str = None
-    
+from backend.models.models import CounselorApplication
 
-# In-memory storage for applications
-applications: OrderedDict[str, CounselorApplicationEntry] = OrderedDict()
-MAX_APPLICATIONS = 1000
-
-DB_FILE = os.path.join(os.path.dirname(__file__), "counselor_applications.json")
-
-def load_applications():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r") as f:
-                data = json.load(f)
-                for item in data:
-                    app = CounselorApplicationEntry(**item)
-                    applications[app.application_id] = app
-        except Exception as e:
-            print(f"Error loading applications: {e}")
-
-def save_applications():
-    try:
-        with open(DB_FILE, "w") as f:
-            json.dump([asdict(app) for app in applications.values()], f, indent=2)
-    except Exception as e:
-        print(f"Error saving applications: {e}")
-
-load_applications()
-
-def submit_application(
+async def submit_application(
+    db: AsyncSession,
     full_name: str,
     email: str,
     phone: str,
@@ -84,13 +37,8 @@ def submit_application(
     # Generate unique application ID
     app_id = f"app_{uuid.uuid4().hex[:12]}"
     
-    # Check if max applications reached
-    if len(applications) >= MAX_APPLICATIONS:
-        # Remove oldest application
-        applications.popitem(last=False)
-    
     # Create application entry
-    application = CounselorApplicationEntry(
+    application = CounselorApplication(
         application_id=app_id,
         full_name=full_name,
         email=email,
@@ -105,89 +53,113 @@ def submit_application(
         specializations=specializations,
         motivation=motivation,
         background_info=background_info or "",
-        submitted_at=time.time()
+        status="pending"
     )
     
-    applications[app_id] = application
-    save_applications()
+    db.add(application)
+    await db.commit()
+    
     return app_id, "Application submitted successfully"
 
 
-def get_application(application_id: str) -> Dict:
+async def get_application(db: AsyncSession, application_id: str) -> Dict:
     """Retrieve application by ID."""
-    if application_id in applications:
-        app = applications[application_id]
-        return asdict(app)
+    stmt = select(CounselorApplication).where(CounselorApplication.application_id == application_id)
+    result = await db.execute(stmt)
+    app = result.scalars().first()
+    
+    if app:
+        return _app_to_dict(app)
     return None
 
 
-def get_all_applications(status: str = None) -> List[Dict]:
+async def get_all_applications(db: AsyncSession, status: str = None) -> List[Dict]:
     """
     Get all applications, optionally filtered by status.
-    
-    Args:
-        status: Filter by status (pending, under_review, approved, rejected)
-        
-    Returns:
-        List of application dictionaries
     """
-    result = []
-    for app in applications.values():
-        if status is None or app.status == status:
-            result.append(asdict(app))
-    return result
+    if status:
+        stmt = select(CounselorApplication).where(CounselorApplication.status == status)
+    else:
+        stmt = select(CounselorApplication)
+        
+    result = await db.execute(stmt)
+    apps = result.scalars().all()
+    
+    return [_app_to_dict(app) for app in apps]
 
 
-def update_application_status(
+async def update_application_status(
+    db: AsyncSession,
     application_id: str,
     new_status: str,
     reviewer_notes: str = None
 ) -> bool:
     """
     Update application status (for admin approval workflow).
-    
-    Args:
-        application_id: ID of application to update
-        new_status: New status (under_review, approved, rejected)
-        reviewer_notes: Notes from reviewer/admin
-        
-    Returns:
-        True if successful, False if not found
     """
-    if application_id not in applications:
-        return False
+    stmt = select(CounselorApplication).where(CounselorApplication.application_id == application_id)
+    result = await db.execute(stmt)
+    app = result.scalars().first()
     
-    app = applications[application_id]
+    if not app:
+        return False
+        
     app.status = new_status
-    app.reviewed_at = time.time()
+    app.reviewed_at = datetime.now(timezone.utc)
     if reviewer_notes:
         app.reviewer_notes = reviewer_notes
-    
-    save_applications()
+        
+    await db.commit()
     return True
 
 
-def get_application_stats() -> Dict:
+async def get_application_stats(db: AsyncSession) -> Dict:
     """Get statistics about applications."""
+    stmt = select(CounselorApplication.status, func.count(CounselorApplication.id)).group_by(CounselorApplication.status)
+    result = await db.execute(stmt)
+    
     stats = {
-        "total_applications": len(applications),
+        "total_applications": 0,
         "pending": 0,
         "under_review": 0,
         "approved": 0,
         "rejected": 0
     }
     
-    for app in applications.values():
-        stats[app.status] = stats.get(app.status, 0) + 1
-    
+    for status, count in result:
+        stats[status] = count
+        stats["total_applications"] += count
+        
     return stats
 
 
-def get_pending_applications() -> List[Dict]:
+async def get_pending_applications(db: AsyncSession) -> List[Dict]:
     """Get all pending applications (not yet reviewed)."""
-    return get_all_applications(status="pending")
+    return await get_all_applications(db, status="pending")
 
 
-def get_approved_counselors() -> List[Dict]:
+async def get_approved_counselors(db: AsyncSession) -> List[Dict]:
     """Get all approved counselor applications."""
-    return get_all_applications(status="approved")
+    return await get_all_applications(db, status="approved")
+
+
+def _app_to_dict(app: CounselorApplication) -> Dict:
+    return {
+        "application_id": app.application_id,
+        "full_name": app.full_name,
+        "email": app.email,
+        "phone": app.phone,
+        "highest_degree": app.highest_degree,
+        "degree_field": app.degree_field,
+        "university": app.university,
+        "graduation_year": app.graduation_year,
+        "certifications": app.certifications,
+        "years_of_experience": app.years_of_experience,
+        "current_role": app.current_role,
+        "specializations": app.specializations,
+        "motivation": app.motivation,
+        "background_info": app.background_info,
+        "status": app.status,
+        "reviewed_at": app.reviewed_at.timestamp() if app.reviewed_at else None,
+        "reviewer_notes": app.reviewer_notes
+    }

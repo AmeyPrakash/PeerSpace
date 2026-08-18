@@ -3,14 +3,26 @@ Counselor & Admin Portal Monitoring Routes
 """
 
 import time
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Header, status
+from typing import Optional
 from backend.models.schemas import AlertActionPayload
 from backend.session_manager import sessions
 from agent.tools import get_counselor_alerts, update_counselor_alert
+from backend.config import COUNSELOR_PASSKEY_HASH
+from backend.security import verify_passkey
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-@router.get("/alerts")
+async def verify_admin(x_admin_token: Optional[str] = Header(None)):
+    """Dependency to verify admin passkey."""
+    if not x_admin_token or not verify_passkey(x_admin_token, COUNSELOR_PASSKEY_HASH):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing admin token"
+        )
+    return True
+
+@router.get("/alerts", dependencies=[Depends(verify_admin)])
 async def get_alerts_api():
     """Retrieves all professional intervention alerts sorted newest first."""
     alerts = get_counselor_alerts()
@@ -20,7 +32,7 @@ async def get_alerts_api():
         "pending_count": sum(1 for a in alerts if a["status"] == "PENDING")
     }
 
-@router.post("/alerts/{alert_id}/action")
+@router.post("/alerts/{alert_id}/action", dependencies=[Depends(verify_admin)])
 async def alert_action_api(alert_id: str, payload: AlertActionPayload):
     """Updates status of a counselor alert (DISPATCHED / RESOLVED)."""
     action = payload.action.upper()
@@ -33,7 +45,7 @@ async def alert_action_api(alert_id: str, payload: AlertActionPayload):
     
     return {"status": "success", "alert_id": alert_id, "new_status": action}
 
-@router.get("/sessions")
+@router.get("/sessions", dependencies=[Depends(verify_admin)])
 async def get_active_sessions():
     """Returns active anonymous student sessions."""
     now = time.time()

@@ -229,3 +229,25 @@ class VerificationOTP(Base):
     __table_args__ = (
         Index('idx_verification_target', 'target'),
     )
+
+class CounselorApplication(Base, TimestampMixin):
+    __tablename__ = "counselor_applications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    application_id = Column(String(50), unique=True, nullable=False, index=True)
+    full_name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False)
+    phone = Column(String(50), nullable=False)
+    highest_degree = Column(String(255), nullable=False)
+    degree_field = Column(String(255), nullable=False)
+    university = Column(String(255), nullable=False)
+    graduation_year = Column(Integer, nullable=False)
+    certifications = Column(Text, nullable=True)
+    years_of_experience = Column(Integer, nullable=False)
+    current_role = Column(String(255), nullable=False)
+    specializations = Column(Text, nullable=False)
+    motivation = Column(Text, nullable=False)
+    background_info = Column(Text, nullable=True)
+    status = Column(String(50), default="pending", index=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    reviewer_notes = Column(Text, nullable=True)

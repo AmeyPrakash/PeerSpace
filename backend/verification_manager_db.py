@@ -1,12 +1,18 @@
 import time
 import random
 import secrets
+import os
+import smtplib
+from email.message import EmailMessage
 from typing import Tuple, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from datetime import datetime, timedelta, timezone
+import logging
 
 from backend.models.models import VerificationOTP
+
+logger = logging.getLogger("peerspace.verification")
 
 OTP_EXPIRY_SECONDS = 300  # 5 minutes
 
@@ -30,15 +36,46 @@ async def send_otp(db: AsyncSession, target: str, contact_type: str) -> Tuple[bo
     db.add(new_otp)
     await db.commit()
     
-    # --- MOCK SENDING ---
-    # TODO: Integrate Twilio (for phone) or SendGrid (for email) here.
-    # e.g., if contact_type == "email": sendgrid.send(target, otp)
-    print("=" * 50)
-    print(f"MOCK OTP DELIVERY")
-    print(f"To: {target} ({contact_type})")
-    print(f"Your PeerSpace Verification Code is: {otp}")
-    print("=" * 50)
-    # --------------------
+    # --- EMAIL DELIVERY ---
+    if contact_type == "email":
+        smtp_server = os.getenv("SMTP_SERVER")
+        smtp_port = os.getenv("SMTP_PORT", "587")
+        smtp_user = os.getenv("SMTP_USER")
+        smtp_password = os.getenv("SMTP_PASSWORD")
+        smtp_from = os.getenv("SMTP_FROM_EMAIL", "noreply@peerspace.app")
+
+        if smtp_server and smtp_user and smtp_password:
+            try:
+                msg = EmailMessage()
+                msg.set_content(f"Your PeerSpace Verification Code is: {otp}\n\nThis code expires in 5 minutes.")
+                msg['Subject'] = 'PeerSpace Verification Code'
+                msg['From'] = smtp_from
+                msg['To'] = target
+
+                with smtplib.SMTP(smtp_server, int(smtp_port)) as server:
+                    server.starttls()
+                    server.login(smtp_user, smtp_password)
+                    server.send_message(msg)
+                
+                logger.info(f"OTP sent to {target} via SMTP")
+                return True, "OTP sent successfully"
+            except Exception as e:
+                logger.error(f"Failed to send OTP email via SMTP: {e}")
+                return False, "Failed to send verification code."
+        else:
+            # Fallback for development if SMTP is not configured
+            logger.info("=" * 50)
+            logger.info(f"MOCK OTP DELIVERY (SMTP not configured)")
+            logger.info(f"To: {target} ({contact_type})")
+            logger.info(f"Your PeerSpace Verification Code is: {otp}")
+            logger.info("=" * 50)
+    else:
+        # Fallback for phone SMS (Needs Twilio in production)
+        logger.info("=" * 50)
+        logger.info(f"MOCK OTP DELIVERY (Phone integration pending)")
+        logger.info(f"To: {target} ({contact_type})")
+        logger.info(f"Your PeerSpace Verification Code is: {otp}")
+        logger.info("=" * 50)
     
     return True, "OTP sent successfully"
 

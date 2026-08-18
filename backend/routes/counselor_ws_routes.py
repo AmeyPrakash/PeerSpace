@@ -2,8 +2,10 @@
 Persistent WebSocket Routes for Student & Counselor direct communication.
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from backend.counselor_ws_manager import counselor_ws_manager
+from backend.security import verify_passkey
+from backend.config import COUNSELOR_PASSKEY_HASH
 
 router = APIRouter(tags=["counselor_ws"])
 
@@ -49,7 +51,11 @@ async def student_persistent_ws(websocket: WebSocket):
 
 @router.websocket("/ws/counselor")
 async def counselor_persistent_ws(websocket: WebSocket):
-    # TODO: In production, require passkey authentication over WS or token.
+    token = websocket.query_params.get("token")
+    if not token or not verify_passkey(token, COUNSELOR_PASSKEY_HASH):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await websocket.accept()
     await counselor_ws_manager.connect_counselor(websocket)
     try:
@@ -65,6 +71,10 @@ async def counselor_persistent_ws(websocket: WebSocket):
                 await counselor_ws_manager.send_to_student(target_session, {
                     "type": "counselor_chat",
                     "message": data.get("message")
+                })
+            elif msg_type == "counselor_join_text":
+                await counselor_ws_manager.send_to_student(target_session, {
+                    "type": "counselor_join_text"
                 })
             elif msg_type in ["offer", "answer", "ice-candidate", "mute-status"]:
                 await counselor_ws_manager.send_to_student(target_session, {
