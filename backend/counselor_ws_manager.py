@@ -11,18 +11,26 @@ logger = logging.getLogger("peerspace.counselor_ws")
 
 class CounselorWSManager:
     def __init__(self):
-        # session_id -> WebSocket
-        self.active_students: Dict[str, WebSocket] = {}
+        # session_id -> list of WebSockets
+        self.active_students: Dict[str, List[WebSocket]] = {}
         # counselor active sockets
         self.active_counselors: List[WebSocket] = []
 
     async def connect_student(self, ws: WebSocket, session_id: str):
-        self.active_students[session_id] = ws
+        if session_id not in self.active_students:
+            self.active_students[session_id] = []
+        self.active_students[session_id].append(ws)
         logger.info(f"Student {session_id} connected to persistent WS")
 
-    async def disconnect_student(self, session_id: str):
+    async def disconnect_student(self, session_id: str, ws: WebSocket = None):
         if session_id in self.active_students:
-            del self.active_students[session_id]
+            if ws and ws in self.active_students[session_id]:
+                self.active_students[session_id].remove(ws)
+            elif not ws:
+                self.active_students[session_id].clear()
+                
+            if len(self.active_students[session_id]) == 0:
+                del self.active_students[session_id]
             logger.info(f"Student {session_id} disconnected from persistent WS")
 
     async def connect_counselor(self, ws: WebSocket):
@@ -36,10 +44,18 @@ class CounselorWSManager:
 
     async def send_to_student(self, session_id: str, message: dict):
         if session_id in self.active_students:
-            try:
-                await self.active_students[session_id].send_json(message)
-            except Exception as e:
-                logger.error(f"Failed to send to student {session_id}: {e}")
+            dead_sockets = []
+            for ws in self.active_students[session_id]:
+                try:
+                    await ws.send_json(message)
+                except Exception as e:
+                    logger.error(f"Failed to send to student {session_id}: {e}")
+                    dead_sockets.append(ws)
+            
+            for ws in dead_sockets:
+                self.active_students[session_id].remove(ws)
+            if len(self.active_students[session_id]) == 0:
+                del self.active_students[session_id]
 
     async def send_to_counselors(self, message: dict):
         dead_sockets = []

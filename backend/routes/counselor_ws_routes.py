@@ -43,9 +43,9 @@ async def student_persistent_ws(websocket: WebSocket):
                     "session_id": session_id
                 })
     except WebSocketDisconnect:
-        await counselor_ws_manager.disconnect_student(session_id)
+        await counselor_ws_manager.disconnect_student(session_id, websocket)
     except Exception:
-        await counselor_ws_manager.disconnect_student(session_id)
+        await counselor_ws_manager.disconnect_student(session_id, websocket)
 
 @router.websocket("/ws/counselor")
 async def counselor_persistent_ws(websocket: WebSocket):
