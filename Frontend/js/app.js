@@ -377,6 +377,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             };
 
+            // Monitor ICE connection state
+            this.peerConnection.oniceconnectionstatechange = () => {
+                if (this.peerConnection) {
+                    const state = this.peerConnection.iceConnectionState;
+                    if (state === "disconnected" || state === "failed" || state === "closed") {
+                        this.handlePeerLeft("Peer disconnected from voice call");
+                    }
+                }
+            };
+
             // If caller/initiator, create WebRTC SDP offer
             if (isInitiator) {
                 try {
