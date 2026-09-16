@@ -147,8 +147,21 @@ document.addEventListener("DOMContentLoaded", () => {
     // -------------------------------------------------------------
     // 3. Anonymous Identity Setup
     // -------------------------------------------------------------
-    async function initStudentSession(randomize = false) {
+    async function initStudentSession(randomize = false, isPageLoad = false) {
         try {
+            // On every page load (including Ctrl+R refresh), reset stale counselor state
+            // so the student always starts fresh. The banner will only re-appear when
+            // a counselor actively joins via the live WebSocket.
+            if (isPageLoad && sessionId) {
+                try {
+                    await fetch("/api/reset", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ session_id: sessionId })
+                    });
+                } catch (e) { /* best-effort */ }
+            }
+
             const res = await fetch("/api/auth/student", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -164,23 +177,17 @@ document.addEventListener("DOMContentLoaded", () => {
             currentAlias = data.alias;
             localStorage.setItem("peerspace_session_id", sessionId);
             localStorage.setItem("peerspace_alias", currentAlias);
-            
+
             if (currentAliasText) currentAliasText.textContent = currentAlias;
             if (heroAliasName) heroAliasName.textContent = currentAlias;
             if (localPeerName) localPeerName.textContent = `${currentAlias} (You)`;
 
-            // Sync counselor active state with live backend confirmation
-            if (data.counselor_active) {
-                counselorActive = true;
-                sessionStorage.setItem("peerspace_counselor_active_" + sessionId, "true");
-                if (counselorConnectedBanner) counselorConnectedBanner.style.display = "flex";
-                if (heroIntro) heroIntro.style.display = "none";
-            } else {
-                counselorActive = false;
-                sessionStorage.removeItem("peerspace_counselor_active_" + sessionId);
-                if (counselorConnectedBanner) counselorConnectedBanner.style.display = "none";
-                if (heroIntro) heroIntro.style.display = "block";
-            }
+            // Always start with counselor banner hidden on page load.
+            // The banner is only shown by a live counselor_join_text WS event.
+            counselorActive = false;
+            const counselorConnectedBannerEarly = document.getElementById("counselor-connected-banner");
+            if (counselorConnectedBannerEarly) counselorConnectedBannerEarly.style.display = "none";
+            if (heroIntro) heroIntro.style.display = "block";
 
             // Ensure persistent student WS is connected with the validated session_id
             if (!studentWS || prevSessionId !== sessionId || randomize) {
@@ -190,7 +197,7 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error("Auth error:", e);
         }
     }
-    initStudentSession();
+    initStudentSession(false, true); // isPageLoad=true → always resets counselor state
 
     if (studentAliasBadge) {
         studentAliasBadge.addEventListener("click", async () => {
