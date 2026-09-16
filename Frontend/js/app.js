@@ -114,6 +114,24 @@ document.addEventListener("DOMContentLoaded", () => {
     let adminToken = sessionStorage.getItem("peerspace_admin_token") || null;
     let alertsPollInterval = null;
 
+    // Persistent WebSocket & Counselor Intervention State
+    let studentWS = null;
+    let counselorWS = null;
+    let counselorActive = false;
+    let activeTargetSessionId = null;
+    let studentWSRetryTimer = null;
+    let counselorWSRetryTimer = null;
+
+    function escapeHtml(str) {
+        if (!str) return "";
+        return String(str)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
     function generateUUID() {
         if (window.crypto && window.crypto.randomUUID) {
             return window.crypto.randomUUID();
@@ -140,6 +158,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 })
             });
             const data = await res.json();
+            const prevSessionId = sessionId;
             sessionId = data.session_id;
             currentAlias = data.alias;
             localStorage.setItem("peerspace_session_id", sessionId);
@@ -148,6 +167,11 @@ document.addEventListener("DOMContentLoaded", () => {
             if (currentAliasText) currentAliasText.textContent = currentAlias;
             if (heroAliasName) heroAliasName.textContent = currentAlias;
             if (localPeerName) localPeerName.textContent = `${currentAlias} (You)`;
+
+            // Ensure persistent student WS is connected with the validated session_id
+            if (!studentWS || prevSessionId !== sessionId || randomize) {
+                initStudentPersistentWS();
+            }
         } catch (e) {
             console.error("Auth error:", e);
         }
@@ -184,6 +208,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (adminToken) {
             adminAuthGate.style.display = "none";
             adminMainContent.style.display = "block";
+            initCounselorWS();
             loadAdminDashboard();
             alertsPollInterval = setInterval(loadAdminDashboard, 5000);
         } else {
@@ -852,11 +877,23 @@ document.addEventListener("DOMContentLoaded", () => {
         messageInput.style.height = "auto";
         sendButton.disabled = true;
 
-        if (peerTextChatManager.isActive()) {
+        // 1. If Counselor has intervened / is active in this session, route directly to Counselor
+        if (counselorActive) {
+            sendCounselorReply(text);
+            // If student is also in P2P text chat, forward to peer as well
+            if (peerTextChatManager && peerTextChatManager.isActive()) {
+                peerTextChatManager.sendMessage(text);
+            }
+            return;
+        }
+
+        // 2. If student is in P2P Text Chat with a peer
+        if (peerTextChatManager && peerTextChatManager.isActive()) {
             peerTextChatManager.sendMessage(text);
             return;
         }
 
+        // 3. Standard AI CBT Coach Interaction
         setTyping(true);
 
         try {
@@ -895,6 +932,44 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error("Chat error:", err);
             setTyping(false);
             appendMessage("coach", "Hey, my connection dropped for a second. Could you repeat that?");
+        }
+    }
+
+    function sendCounselorReply(text) {
+        const msgId = "msg-" + Date.now() + "-" + Math.random().toString(36).substring(2, 9);
+        const payload = {
+            type: "chat_reply",
+            msg_id: msgId,
+            session_id: sessionId,
+            alias: currentAlias || "Student",
+            message: text
+        };
+
+        let wsSent = false;
+        if (studentWS && studentWS.readyState === WebSocket.OPEN) {
+            try {
+                studentWS.send(JSON.stringify(payload));
+                wsSent = true;
+                console.log("Sent chat_reply via studentWS:", payload);
+            } catch (err) {
+                console.warn("Failed to send reply via studentWS:", err);
+            }
+        }
+
+        // Only invoke HTTP fallback when WebSocket is not open or failed
+        if (!wsSent) {
+            console.warn("studentWS not open. Reconnecting and using HTTP fallback /api/chat/reply...");
+            initStudentPersistentWS();
+
+            fetch("/api/chat/reply", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            }).then(res => {
+                if (!res.ok) console.warn("Fallback /api/chat/reply HTTP error:", res.status);
+            }).catch(err => {
+                console.warn("Fallback /api/chat/reply failed:", err);
+            });
         }
     }
 
@@ -962,7 +1037,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 sessionId = generateUUID();
                 localStorage.setItem("peerspace_session_id", sessionId);
+                counselorActive = false;
+                if (counselorConnectedBanner) counselorConnectedBanner.style.display = "none";
                 await initStudentSession();
+                initStudentPersistentWS();
 
                 chatMessages.innerHTML = "";
                 if (heroIntro) {
@@ -1001,6 +1079,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             adminAuthGate.style.display = "none";
             adminMainContent.style.display = "block";
+            initCounselorWS();
             loadAdminDashboard();
             alertsPollInterval = setInterval(loadAdminDashboard, 5000);
         } catch (e) {
@@ -1012,6 +1091,18 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionStorage.removeItem("peerspace_admin_token");
         adminToken = null;
         if (alertsPollInterval) clearInterval(alertsPollInterval);
+        if (counselorWS) {
+            try {
+                counselorWS.onclose = null;
+                counselorWS.onerror = null;
+                counselorWS.close();
+            } catch(e) {}
+            counselorWS = null;
+        }
+        if (counselorWSRetryTimer) {
+            clearTimeout(counselorWSRetryTimer);
+            counselorWSRetryTimer = null;
+        }
         
         adminPasskeyInput.value = "";
         adminAuthGate.style.display = "flex";
@@ -1105,12 +1196,12 @@ document.addEventListener("DOMContentLoaded", () => {
                         ? `
                             <button class="dispatch-btn" data-id="${alert.id}" data-act="DISPATCHED">Dispatch On-Call Counselor</button>
                             <button class="resolve-btn" data-id="${alert.id}" data-act="RESOLVED">Mark Resolved</button>
-                            <button class="btn-secondary join-counselor-text-btn" data-session-id="${alert.session_id}" data-alert-id="${alert.id}" style="padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer; color: var(--text-color);">Join Text Chat</button>
-                            <button class="btn-secondary join-counselor-voice-btn" data-session-id="${alert.session_id}" data-alert-id="${alert.id}" style="padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer; color: var(--text-color); margin-left: 0.5rem;">Join Voice Call</button>
+                            <button class="btn-secondary join-counselor-text-btn" data-session-id="${alert.session_id}" data-alias="${escapeHtml(alert.alias || '')}" data-alert-id="${alert.id}" style="padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer; color: var(--text-color);">Join Text Chat</button>
+                            <button class="btn-secondary join-counselor-voice-btn" data-session-id="${alert.session_id}" data-alias="${escapeHtml(alert.alias || '')}" data-alert-id="${alert.id}" style="padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer; color: var(--text-color); margin-left: 0.5rem;">Join Voice Call</button>
                           `
                         : `<span class="alert-status-badge ${alert.status}">Status: ${alert.status}</span>
-                           <button class="btn-secondary join-counselor-text-btn" data-session-id="${alert.session_id}" data-alert-id="${alert.id}" style="margin-left: 1rem; padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer; color: var(--text-color);">Join Text Chat</button>
-                           <button class="btn-secondary join-counselor-voice-btn" data-session-id="${alert.session_id}" data-alert-id="${alert.id}" style="margin-left: 0.5rem; padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer; color: var(--text-color);">Join Voice Call</button>`
+                           <button class="btn-secondary join-counselor-text-btn" data-session-id="${alert.session_id}" data-alias="${escapeHtml(alert.alias || '')}" data-alert-id="${alert.id}" style="margin-left: 1rem; padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer; color: var(--text-color);">Join Text Chat</button>
+                           <button class="btn-secondary join-counselor-voice-btn" data-session-id="${alert.session_id}" data-alias="${escapeHtml(alert.alias || '')}" data-alert-id="${alert.id}" style="margin-left: 0.5rem; padding: 0.5rem 1rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer; color: var(--text-color);">Join Voice Call</button>`
                     }
                 </div>
             `;
@@ -1126,26 +1217,28 @@ document.addEventListener("DOMContentLoaded", () => {
             card.querySelectorAll(".join-counselor-text-btn").forEach((btn) => {
                 btn.addEventListener("click", async () => {
                     const sid = btn.getAttribute("data-session-id");
+                    const alias = btn.getAttribute("data-alias");
                     const alertId = btn.getAttribute("data-alert-id");
                     
                     if (alert.status === "PENDING") {
                         await dispatchAlertAction(alertId, "DISPATCHED");
                     }
                     
-                    openCounselorChat(sid);
+                    openCounselorChat(sid, alias);
                 });
             });
 
             card.querySelectorAll(".join-counselor-voice-btn").forEach((btn) => {
                 btn.addEventListener("click", async () => {
                     const sid = btn.getAttribute("data-session-id");
+                    const alias = btn.getAttribute("data-alias");
                     const alertId = btn.getAttribute("data-alert-id");
                     
                     if (alert.status === "PENDING") {
                         await dispatchAlertAction(alertId, "DISPATCHED");
                     }
                     
-                    openCounselorChat(sid);
+                    openCounselorChat(sid, alias);
                     // Slight delay to ensure WS is initialized and panel is open
                     setTimeout(() => {
                         const counselorStartCallBtn = document.getElementById("counselor-start-call-btn");
@@ -1193,7 +1286,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <td><button class="btn-secondary join-counselor-chat-btn" data-id="${s.full_id}" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Join Chat</button></td>
             `;
             tr.querySelector('.join-counselor-chat-btn').addEventListener('click', () => {
-                openCounselorChat(s.full_id);
+                openCounselorChat(s.full_id, s.alias);
             });
             sessionsTableBody.appendChild(tr);
         });
@@ -1213,16 +1306,38 @@ document.addEventListener("DOMContentLoaded", () => {
     // -------------------------------------------------------------
     // 9. Counselor Live Chat Integration
     // -------------------------------------------------------------
-    
-    let studentWS = null;
-    let counselorActive = false;
     const counselorConnectedBanner = document.getElementById("counselor-connected-banner");
 
     function initStudentPersistentWS() {
-        if (studentWS) studentWS.close();
+        if (studentWSRetryTimer) {
+            clearTimeout(studentWSRetryTimer);
+            studentWSRetryTimer = null;
+        }
+
+        if (studentWS) {
+            try {
+                studentWS.onclose = null;
+                studentWS.onerror = null;
+                studentWS.close();
+            } catch (e) {}
+        }
+
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         studentWS = new WebSocket(`${protocol}//${window.location.host}/ws/student?session_id=${encodeURIComponent(sessionId)}`);
         
+        studentWS.onopen = () => {
+            console.log("studentWS connected for session:", sessionId);
+        };
+
+        studentWS.onclose = (e) => {
+            console.warn("studentWS disconnected. Scheduling reconnect in 2s...", e.code);
+            studentWSRetryTimer = setTimeout(initStudentPersistentWS, 2000);
+        };
+
+        studentWS.onerror = (e) => {
+            console.error("studentWS error:", e);
+        };
+
         studentWS.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === "counselor_join_text") {
@@ -1235,28 +1350,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 const counselorWaitingBanner = document.getElementById("counselor-waiting-banner");
                 if (counselorWaitingBanner) counselorWaitingBanner.style.display = "none";
                 
-                const msgEl = document.createElement("div");
-                msgEl.className = "message ai-message";
-                msgEl.innerHTML = `<div class="message-content" style="border: 1px solid #10b981; text-align: center; margin-bottom: 10px;"><strong>A Human Counselor has joined the chat.</strong></div>`;
-                chatMessages.appendChild(msgEl);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            } else if (data.type === "counselor_chat") {
+                appendMessage("coach", "A campus counselor has joined your session. Responses are now from a human professional.", "Live Counselor");
+            } else if (data.type === "counselor_chat" || data.type === "counselor_message") {
                 counselorActive = true;
                 if (counselorConnectedBanner) counselorConnectedBanner.style.display = "flex";
                 if (heroIntro) heroIntro.style.display = "none";
                 const counselorWaitingBanner = document.getElementById("counselor-waiting-banner");
                 if (counselorWaitingBanner) counselorWaitingBanner.style.display = "none";
                 
-                const msgEl = document.createElement("div");
-                msgEl.className = "message ai-message";
-                msgEl.innerHTML = `
-                    <div class="message-content" style="border: 1px solid #10b981;">
-                        <span class="pastel-badge green" style="margin-bottom:0.5rem;display:inline-block">Human Counselor</span><br/>
-                        ${data.message.replace(/\n/g, '<br/>')}
-                    </div>
-                `;
-                chatMessages.appendChild(msgEl);
-                chatMessages.scrollTop = chatMessages.scrollHeight;
+                appendMessage("coach", data.message, "Human Counselor");
+            } else if (data.type === "counselor_leave_text") {
+                counselorActive = false;
+                if (counselorConnectedBanner) counselorConnectedBanner.style.display = "none";
+                appendMessage("coach", "Counselor has ended the live intervention. You are back with your AI CBT coach.", "System");
             } else if (data.type === "counselor_voice_invite") {
                 const inviteBanner = document.getElementById("counselor-voice-invite-banner");
                 if (inviteBanner) {
@@ -1293,32 +1399,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (studentAliasBadge) {
         studentAliasBadge.addEventListener("click", () => {
-            setTimeout(initStudentPersistentWS, 500); 
+            setTimeout(initStudentPersistentWS, 400); 
         });
     }
-    
-    chatForm.addEventListener("submit", (e) => {
-        if (counselorActive && studentWS && studentWS.readyState === WebSocket.OPEN) {
-            e.preventDefault(); 
-            e.stopPropagation();
-            
-            const msg = messageInput.value.trim();
-            if (!msg) return;
-            
-            const msgEl = document.createElement("div");
-            msgEl.className = "message user-message";
-            msgEl.innerHTML = `<div class="message-content">${msg}</div>`;
-            chatMessages.appendChild(msgEl);
-            messageInput.value = "";
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-            
-            studentWS.send(JSON.stringify({ type: "chat_reply", message: msg }));
-        }
-    }, true); 
 
-    let counselorWS = null;
-    let activeTargetSessionId = null;
-    
     const counselorChatPanel = document.getElementById("counselor-chat-panel");
     const closeCounselorChatBtn = document.getElementById("close-counselor-chat-btn");
     const counselorChatMessages = document.getElementById("counselor-chat-messages");
@@ -1326,11 +1410,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const counselorMessageInput = document.getElementById("counselor-message-input");
     const counselorStartCallBtn = document.getElementById("counselor-start-call-btn");
 
+    const counselorSeenMsgKeys = new Set();
+
     if (counselorStartCallBtn) {
         counselorStartCallBtn.addEventListener("click", () => {
             if (!activeTargetSessionId || !counselorWS) return;
             
-            // Send voice call invitation to student
             counselorWS.send(JSON.stringify({
                 type: "counselor_voice_invite",
                 session_id: activeTargetSessionId
@@ -1342,34 +1427,86 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function initCounselorWS() {
-        if (counselorWS) counselorWS.close();
+        if (!adminToken) return;
+
+        if (counselorWSRetryTimer) {
+            clearTimeout(counselorWSRetryTimer);
+            counselorWSRetryTimer = null;
+        }
+
+        if (counselorWS) {
+            try {
+                counselorWS.onclose = null;
+                counselorWS.onerror = null;
+                counselorWS.close();
+            } catch (e) {}
+        }
+
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         counselorWS = new WebSocket(`${protocol}//${window.location.host}/ws/counselor?token=${encodeURIComponent(adminToken)}`);
         
+        counselorWS.onopen = () => {
+            console.log("counselorWS connected to server.");
+        };
+
         counselorWS.onclose = (e) => {
+            console.warn("counselorWS closed:", e.code);
             if (e.code === 1008) {
                 forceAdminLogout();
+            } else if (adminToken) {
+                counselorWSRetryTimer = setTimeout(initCounselorWS, 2000);
             }
+        };
+
+        counselorWS.onerror = (e) => {
+            console.error("counselorWS error:", e);
         };
 
         counselorWS.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            if (data.type === "student_chat_reply" && data.session_id === activeTargetSessionId) {
-                const msgEl = document.createElement("div");
-                msgEl.className = "message ai-message";
-                msgEl.innerHTML = `
-                    <div class="message-content">
-                        <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; color: var(--text-muted);">Student</strong>
-                        ${data.message}
-                    </div>
-                `;
-                counselorChatMessages.appendChild(msgEl);
-                counselorChatMessages.scrollTop = counselorChatMessages.scrollHeight;
-            } else if (data.type === "student_webrtc_signal" && data.session_id === activeTargetSessionId) {
+            if (data.type === "student_chat_reply") {
+                const incomingSid = String(data.session_id || "").trim();
+                const activeSid = String(activeTargetSessionId || "").trim();
+                const senderAlias = data.alias || "Student";
+                const msgKey = data.msg_id || `${incomingSid}:${data.message}`;
+
+                // Deduplicate: suppress double-rendering if multiple network transports arrive
+                if (counselorSeenMsgKeys.has(msgKey)) {
+                    console.log("[Counselor] Suppressed duplicate student message:", msgKey);
+                    return;
+                }
+                counselorSeenMsgKeys.add(msgKey);
+                setTimeout(() => counselorSeenMsgKeys.delete(msgKey), 15000);
+
+                console.log(`[Counselor] student_chat_reply from ${senderAlias} (${incomingSid}):`, data.message);
+
+                if (activeSid && incomingSid === activeSid) {
+                    if (counselorChatMessages) {
+                        const emptyFeed = counselorChatMessages.querySelector(".empty-feed-text");
+                        if (emptyFeed) emptyFeed.remove();
+
+                        const msgEl = document.createElement("div");
+                        msgEl.className = "message ai-message";
+                        msgEl.innerHTML = `
+                            <div class="message-content" style="border-left: 3px solid #10b981;">
+                                <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(senderAlias)}</strong>
+                                ${escapeHtml(data.message).replace(/\n/g, '<br/>')}
+                            </div>
+                        `;
+                        counselorChatMessages.appendChild(msgEl);
+                        counselorChatMessages.scrollTop = counselorChatMessages.scrollHeight;
+                    }
+                } else {
+                    // Update dashboard count or table if message belongs to another student
+                    loadAdminDashboard();
+                }
+            } else if (data.type === "new_alert") {
+                loadAdminDashboard();
+            } else if (data.type === "student_webrtc_signal" && String(data.session_id).trim() === String(activeTargetSessionId).trim()) {
                 if (window.directVoiceChatManager) {
                     window.directVoiceChatManager.handleSignalingMessage(data.signal);
                 }
-            } else if (data.type === "student_voice_accept" && data.session_id === activeTargetSessionId) {
+            } else if (data.type === "student_voice_accept" && String(data.session_id).trim() === String(activeTargetSessionId).trim()) {
                 if (counselorStartCallBtn) {
                     counselorStartCallBtn.innerHTML = "Connected";
                 }
@@ -1383,7 +1520,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 });
                 window.directVoiceChatManager.startVoiceCall(true, "Student");
-            } else if (data.type === "student_voice_decline" && data.session_id === activeTargetSessionId) {
+            } else if (data.type === "student_voice_decline" && String(data.session_id).trim() === String(activeTargetSessionId).trim()) {
                 if (counselorStartCallBtn) {
                     counselorStartCallBtn.innerHTML = "Call Declined";
                     setTimeout(() => {
@@ -1395,19 +1532,28 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     }
 
-    function openCounselorChat(targetSessionId) {
-        if (!counselorWS) initCounselorWS();
-        activeTargetSessionId = targetSessionId;
+    function openCounselorChat(targetSessionId, targetAlias = null) {
+        activeTargetSessionId = String(targetSessionId).trim();
+        if (!counselorWS || counselorWS.readyState !== WebSocket.OPEN) {
+            initCounselorWS();
+        }
         
-        // Notify student that counselor has joined
+        const titleEl = document.getElementById("counselor-chat-title");
+        if (titleEl) {
+            const displayName = targetAlias || (activeTargetSessionId.length > 12 ? activeTargetSessionId.substring(0, 8) + '...' : activeTargetSessionId);
+            titleEl.textContent = `Live Session with ${displayName}`;
+        }
+
+        const sendJoinNotification = () => {
+            if (counselorWS && counselorWS.readyState === WebSocket.OPEN) {
+                counselorWS.send(JSON.stringify({ type: "counselor_join_text", session_id: activeTargetSessionId }));
+            }
+        };
+
         if (counselorWS && counselorWS.readyState === WebSocket.OPEN) {
-            counselorWS.send(JSON.stringify({ type: "counselor_join_text", session_id: activeTargetSessionId }));
+            sendJoinNotification();
         } else {
-            setTimeout(() => {
-                if (counselorWS && counselorWS.readyState === WebSocket.OPEN) {
-                    counselorWS.send(JSON.stringify({ type: "counselor_join_text", session_id: activeTargetSessionId }));
-                }
-            }, 500);
+            setTimeout(sendJoinNotification, 500);
         }
 
         if (counselorChatPanel) counselorChatPanel.style.display = "block";
@@ -1421,6 +1567,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (closeCounselorChatBtn) {
         closeCounselorChatBtn.addEventListener("click", () => {
+            if (counselorWS && counselorWS.readyState === WebSocket.OPEN && activeTargetSessionId) {
+                counselorWS.send(JSON.stringify({
+                    type: "counselor_leave_text",
+                    session_id: activeTargetSessionId
+                }));
+            }
             counselorChatPanel.style.display = "none";
             activeTargetSessionId = null;
         });
@@ -1432,12 +1584,15 @@ document.addEventListener("DOMContentLoaded", () => {
             const msg = counselorMessageInput.value.trim();
             if (!msg || !activeTargetSessionId || !counselorWS) return;
             
+            const emptyFeed = counselorChatMessages.querySelector(".empty-feed-text");
+            if (emptyFeed) emptyFeed.remove();
+
             const msgEl = document.createElement("div");
             msgEl.className = "message user-message";
             msgEl.innerHTML = `
                 <div class="message-content">
                     <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; opacity: 0.8;">You</strong>
-                    ${msg}
+                    ${escapeHtml(msg).replace(/\n/g, '<br/>')}
                 </div>
             `;
             counselorChatMessages.appendChild(msgEl);

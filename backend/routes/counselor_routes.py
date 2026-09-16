@@ -86,7 +86,7 @@ async def verify_application_and_approve(req: VerifyApplicationRequest, db: Asyn
         raise HTTPException(status_code=404, detail="Application not found.")
 
     # Reveal the global passkey
-    passkey = os.getenv("COUNSELOR_PASSKEY", "default_secure_passkey")
+    passkey = os.getenv("COUNSELOR_PASSKEY", "")
 
     return {
         "status": "success",

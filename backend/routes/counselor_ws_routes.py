@@ -1,11 +1,10 @@
-"""
-Persistent WebSocket Routes for Student & Counselor direct communication.
-"""
-
+import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from backend.counselor_ws_manager import counselor_ws_manager
 from backend.security import verify_passkey
 from backend.config import COUNSELOR_PASSKEY_HASH
+
+logger = logging.getLogger("peerspace.counselor_ws_routes")
 
 router = APIRouter(tags=["counselor_ws"])
 
@@ -26,10 +25,15 @@ async def student_persistent_ws(websocket: WebSocket):
             msg_type = data.get("type")
             
             if msg_type == "chat_reply":
+                alias = data.get("alias", "Student")
+                msg_id = data.get("msg_id")
+                logger.info("Forwarding student_chat_reply from session %s (%s, msg_id=%s) to %d counselor(s)", session_id, alias, msg_id, len(counselor_ws_manager.active_counselors))
                 # Forward to counselors
                 await counselor_ws_manager.send_to_counselors({
                     "type": "student_chat_reply",
+                    "msg_id": msg_id,
                     "session_id": session_id,
+                    "alias": alias,
                     "message": data.get("message")
                 })
             elif msg_type in ["offer", "answer", "ice-candidate", "mute-status"]:
@@ -84,6 +88,11 @@ async def counselor_persistent_ws(websocket: WebSocket):
             elif msg_type == "counselor_voice_invite":
                 await counselor_ws_manager.send_to_student(target_session, {
                     "type": "counselor_voice_invite"
+                })
+            elif msg_type == "counselor_leave_text":
+                logger.info("Counselor ending live text session with student %s", target_session)
+                await counselor_ws_manager.send_to_student(target_session, {
+                    "type": "counselor_leave_text"
                 })
     except WebSocketDisconnect:
         await counselor_ws_manager.disconnect_counselor(websocket)

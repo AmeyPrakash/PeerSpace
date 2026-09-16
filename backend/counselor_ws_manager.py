@@ -4,6 +4,7 @@ Handles persistent connections for students and counselors.
 """
 
 import logging
+import time
 from typing import Dict, List
 from fastapi import WebSocket
 
@@ -15,6 +16,30 @@ class CounselorWSManager:
         self.active_students: Dict[str, List[WebSocket]] = {}
         # counselor active sockets
         self.active_counselors: List[WebSocket] = []
+        # msg_key -> timestamp for deduplication
+        self._recent_messages: Dict[str, float] = {}
+
+    def _is_duplicate_message(self, message: dict) -> bool:
+        """Prevent duplicate student replies from being delivered to counselors."""
+        if message.get("type") != "student_chat_reply":
+            return False
+
+        now = time.time()
+        # Evict entries older than 20 seconds
+        expired = [k for k, ts in self._recent_messages.items() if now - ts > 20.0]
+        for k in expired:
+            del self._recent_messages[k]
+
+        msg_id = message.get("msg_id")
+        if not msg_id:
+            msg_id = f"{message.get('session_id')}:{message.get('message')}"
+
+        if msg_id in self._recent_messages:
+            logger.info("Suppressed duplicate student message to counselors: %s", msg_id)
+            return True
+
+        self._recent_messages[msg_id] = now
+        return False
 
     async def connect_student(self, ws: WebSocket, session_id: str):
         if session_id not in self.active_students:
@@ -58,6 +83,9 @@ class CounselorWSManager:
                 del self.active_students[session_id]
 
     async def send_to_counselors(self, message: dict):
+        if self._is_duplicate_message(message):
+            return
+
         dead_sockets = []
         for ws in self.active_counselors:
             try:

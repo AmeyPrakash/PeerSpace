@@ -23,12 +23,12 @@ async def add_security_headers(request: Request, call_next):
     # Restrict which features can be used (microphone requires user gesture)
     response.headers["Permissions-Policy"] = "microphone=(self)"
     
-    # HTTP Strict Transport Security - enforce HTTPS for 1 year
-    # includeSubDomains ensures all subdomains use HTTPS
-    # preload allows inclusion in HSTS preload lists
-    response.headers["Strict-Transport-Security"] = (
-        "max-age=31536000; includeSubDomains; preload"
-    )
+    # HTTP Strict Transport Security - enforce HTTPS for 1 year when served over HTTPS
+    # Only send over HTTPS so plain HTTP local network testing doesn't trigger browser SSL errors
+    if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains; preload"
+        )
     
     # Content Security Policy - restrictive whitelist approach
     # Prevents XSS, clickjacking, and other injection attacks

@@ -8,6 +8,11 @@ import json
 import time
 import sys
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env file from project root
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 if sys.stdout.encoding != 'utf-8':
     try:
@@ -136,7 +141,13 @@ def run_tests():
         
         print(f"  Peer Coach Support Reply: \"{data['reply']}\"")
         
-        alerts_req = urllib.request.Request(f"{BASE_URL}/api/admin/alerts")
+        test_counselor_passkey = os.getenv("COUNSELOR_PASSKEY")
+        if not test_counselor_passkey:
+            raise ValueError("COUNSELOR_PASSKEY must be set in .env for system tests.")
+        alerts_req = urllib.request.Request(
+            f"{BASE_URL}/api/admin/alerts",
+            headers={"x-admin-token": test_counselor_passkey}
+        )
         alerts_res = urllib.request.urlopen(alerts_req)
         alerts_data = json.loads(alerts_res.read().decode('utf-8'))
         
@@ -155,15 +166,13 @@ def run_tests():
 
     # -------------------------------------------------------------
     # 4. Counselor / Admin Portal Authentication
-    # Note: This test uses the COUNSELOR_PASSKEY from environment/config
-    # For testing, ensure you set COUNSELOR_PASSKEY in your .env file
-    # Example: COUNSELOR_PASSKEY=test_counselor_passkey_12345
+    # -------------------------------------------------------------
     total_tests += 1
     print("\n[Test 4] Counselor Portal: Admin Passkey Authentication...")
     
-    # For testing, use a test passkey (in production, this would be from secure config)
-    # This is intentionally NOT the production passkey for security
-    test_counselor_passkey = os.getenv("COUNSELOR_PASSKEY", "test_passkey_for_unit_tests")
+    test_counselor_passkey = os.getenv("COUNSELOR_PASSKEY")
+    if not test_counselor_passkey:
+        raise ValueError("COUNSELOR_PASSKEY must be set in .env for system tests.")
     
     try:
         req = urllib.request.Request(
@@ -192,7 +201,10 @@ def run_tests():
             req = urllib.request.Request(
                 f"{BASE_URL}/api/admin/alerts/{latest_alert_id}/action",
                 data=json.dumps({"action": "DISPATCHED"}).encode('utf-8'),
-                headers={"Content-Type": "application/json"}
+                headers={
+                    "Content-Type": "application/json",
+                    "x-admin-token": test_counselor_passkey
+                }
             )
             res = urllib.request.urlopen(req)
             data = json.loads(res.read().decode('utf-8'))
@@ -213,7 +225,10 @@ def run_tests():
     total_tests += 1
     print("\n[Test 6] Counselor Portal: Active Anonymous Sessions List...")
     try:
-        req = urllib.request.Request(f"{BASE_URL}/api/admin/sessions")
+        req = urllib.request.Request(
+            f"{BASE_URL}/api/admin/sessions",
+            headers={"x-admin-token": test_counselor_passkey}
+        )
         res = urllib.request.urlopen(req)
         data = json.loads(res.read().decode('utf-8'))
         

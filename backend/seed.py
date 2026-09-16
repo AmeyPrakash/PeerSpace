@@ -9,12 +9,18 @@ async def seed_database():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         
-    print("Inserting seed data...")
+    import secrets
+    import os
+
+    admin_pass = os.getenv("SEED_ADMIN_PASSWORD", secrets.token_urlsafe(16))
+    counselor_pass = os.getenv("SEED_COUNSELOR_PASSWORD", secrets.token_urlsafe(16))
+    student_pass = os.getenv("SEED_STUDENT_PASSWORD", secrets.token_urlsafe(16))
+
     async with AsyncSessionLocal() as session:
         # 1. Create an Admin
         admin_user = User(
             email="admin@peerspace.edu",
-            password_hash=hash_passkey("admin123"), # In a real system, use proper hashing
+            password_hash=hash_passkey(admin_pass),
             role=UserRole.admin,
             email_verified=True
         )
@@ -23,7 +29,7 @@ async def seed_database():
         # 2. Create a Counselor
         counselor_user = User(
             email="dr.smith@peerspace.edu",
-            password_hash=hash_passkey("securepass"),
+            password_hash=hash_passkey(counselor_pass),
             role=UserRole.counselor,
             email_verified=True
         )
@@ -44,7 +50,7 @@ async def seed_database():
         # 3. Create a mock anonymous Student
         student_user = User(
             email="student1@anonymous.peerspace",
-            password_hash=hash_passkey("studentpass"),
+            password_hash=hash_passkey(student_pass),
             role=UserRole.student,
             email_verified=True
         )

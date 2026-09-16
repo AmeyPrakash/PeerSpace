@@ -104,6 +104,31 @@ async def chat_intervene_api(payload: ChatInterventionPayload, request: Request)
     
     return {"status": "success"}
 
+from typing import Optional
+from pydantic import BaseModel
+
+class StudentReplyPayload(BaseModel):
+    session_id: str
+    message: str
+    alias: Optional[str] = "Student"
+    msg_id: Optional[str] = None
+
+@router.post("/chat/reply")
+async def chat_reply_api(payload: StudentReplyPayload, request: Request):
+    """Fallback endpoint for student to reply to active counselor intervention."""
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(f"{client_ip}:{payload.session_id}")
+    
+    from backend.counselor_ws_manager import counselor_ws_manager
+    await counselor_ws_manager.send_to_counselors({
+        "type": "student_chat_reply",
+        "msg_id": payload.msg_id,
+        "session_id": payload.session_id,
+        "alias": payload.alias or "Student",
+        "message": payload.message
+    })
+    return {"status": "success"}
+
 @router.websocket("/ws/counselor/intervene/p2p")
 async def counselor_intervene_p2p_endpoint(websocket: WebSocket):
     """WebSocket endpoint for a counselor to join a P2P chat room."""
