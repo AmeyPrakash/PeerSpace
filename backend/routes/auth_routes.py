@@ -24,10 +24,19 @@ async def student_auth_api(payload: StudentAuthPayload, request: Request):
         alias=payload.alias,
         randomize_alias=bool(payload.randomize)
     )
+    from backend.session_manager import is_counselor_active, set_counselor_active
+    from backend.counselor_ws_manager import counselor_ws_manager
+
+    # A counselor is only active if marked active AND there is at least one active counselor connected
+    c_active = is_counselor_active(sid) and len(counselor_ws_manager.active_counselors) > 0
+    if not c_active:
+        set_counselor_active(sid, False)
+
     return {
         "status": "authenticated",
         "session_id": sid,
-        "alias": student_alias
+        "alias": student_alias,
+        "counselor_active": c_active
     }
 
 @router.post("/admin")

@@ -26,6 +26,29 @@ async def chat_api(payload: ChatPayload, request: Request):
     if sid in sessions:
         sessions[sid].message_count += 1
 
+    # If counselor has intervened, route student message directly to counselor and completely suppress AI
+    if sid in sessions and sessions[sid].counselor_active:
+        from backend.counselor_ws_manager import counselor_ws_manager
+        import uuid
+        msg_id = "msg-" + str(int(time.time() * 1000)) + "-" + str(uuid.uuid4())[:8]
+        try:
+            sessions[sid].agent.add_message("user", payload.message)
+        except Exception:
+            pass
+        await counselor_ws_manager.send_to_counselors({
+            "type": "student_chat_reply",
+            "msg_id": msg_id,
+            "session_id": sid,
+            "alias": student_alias,
+            "message": payload.message
+        })
+        return {
+            "reply": None,
+            "counselor_active": True,
+            "session_id": sid,
+            "alias": student_alias
+        }
+
     from agent.tools import COUNSELOR_ALERTS
     from backend.counselor_ws_manager import counselor_ws_manager
     len_before = len(COUNSELOR_ALERTS)
@@ -39,6 +62,7 @@ async def chat_api(payload: ChatPayload, request: Request):
 
     return {
         "reply": reply,
+        "counselor_active": False,
         "session_id": sid,
         "alias": student_alias
     }
@@ -90,6 +114,8 @@ async def chat_intervene_api(payload: ChatInterventionPayload, request: Request)
         return {"status": "error", "message": "Session not found"}
         
     session = sessions[payload.session_id]
+    session.counselor_active = True
+    session.last_accessed = time.time()
     
     # It's an AI session, so we can append to the agent's memory
     session.agent.add_message("assistant", f"[COUNSELOR INTERVENTION]: {payload.message}")
@@ -118,7 +144,16 @@ async def chat_reply_api(payload: StudentReplyPayload, request: Request):
     """Fallback endpoint for student to reply to active counselor intervention."""
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(f"{client_ip}:{payload.session_id}")
-    
+
+    if payload.session_id in sessions:
+        sessions[payload.session_id].counselor_active = True
+        sessions[payload.session_id].message_count += 1
+        sessions[payload.session_id].last_accessed = time.time()
+        try:
+            sessions[payload.session_id].agent.add_message("user", payload.message)
+        except Exception:
+            pass
+
     from backend.counselor_ws_manager import counselor_ws_manager
     await counselor_ws_manager.send_to_counselors({
         "type": "student_chat_reply",
@@ -127,7 +162,7 @@ async def chat_reply_api(payload: StudentReplyPayload, request: Request):
         "alias": payload.alias or "Student",
         "message": payload.message
     })
-    return {"status": "success"}
+    return {"status": "success", "counselor_active": True}
 
 @router.websocket("/ws/counselor/intervene/p2p")
 async def counselor_intervene_p2p_endpoint(websocket: WebSocket):

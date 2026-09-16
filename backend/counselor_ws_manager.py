@@ -16,8 +16,21 @@ class CounselorWSManager:
         self.active_students: Dict[str, List[WebSocket]] = {}
         # counselor active sockets
         self.active_counselors: List[WebSocket] = []
+        # websocket -> set of target session_ids monitored by this counselor
+        self.counselor_sessions: Dict[WebSocket, set] = {}
         # msg_key -> timestamp for deduplication
         self._recent_messages: Dict[str, float] = {}
+
+    def register_counselor_session(self, ws: WebSocket, session_id: str):
+        """Associates a counselor connection with an active student intervention session."""
+        if ws not in self.counselor_sessions:
+            self.counselor_sessions[ws] = set()
+        self.counselor_sessions[ws].add(session_id)
+
+    def unregister_counselor_session(self, ws: WebSocket, session_id: str):
+        """Disassociates a counselor connection when the counselor leaves the session."""
+        if ws in self.counselor_sessions:
+            self.counselor_sessions[ws].discard(session_id)
 
     def _is_duplicate_message(self, message: dict) -> bool:
         """Prevent duplicate student replies from being delivered to counselors."""
@@ -60,12 +73,33 @@ class CounselorWSManager:
 
     async def connect_counselor(self, ws: WebSocket):
         self.active_counselors.append(ws)
+        self.counselor_sessions[ws] = set()
         logger.info("Counselor connected to WS")
 
     async def disconnect_counselor(self, ws: WebSocket):
+        from backend.session_manager import set_counselor_active, sessions
         if ws in self.active_counselors:
             self.active_counselors.remove(ws)
             logger.info("Counselor disconnected from WS")
+
+        abandoned_sessions = self.counselor_sessions.pop(ws, set())
+        for sid in abandoned_sessions:
+            # Check if any other connected counselor is still in this session
+            other_active = False
+            for other_ws, sids in self.counselor_sessions.items():
+                if sid in sids and other_ws in self.active_counselors:
+                    other_active = True
+                    break
+
+            if not other_active or len(self.active_counselors) == 0:
+                logger.info(f"Auto-recovery: clearing counselor_active for abandoned student session {sid}")
+                set_counselor_active(sid, False)
+                if sid in sessions:
+                    try:
+                        sessions[sid].agent.add_message("assistant", "[COUNSELOR DISCONNECTED]")
+                    except Exception:
+                        pass
+                await self.send_to_student(sid, {"type": "counselor_leave_text"})
 
     async def send_to_student(self, session_id: str, message: dict):
         if session_id in self.active_students:

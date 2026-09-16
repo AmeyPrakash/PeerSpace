@@ -3,6 +3,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from backend.counselor_ws_manager import counselor_ws_manager
 from backend.security import verify_passkey
 from backend.config import COUNSELOR_PASSKEY_HASH
+from backend.session_manager import set_counselor_active, sessions
 
 logger = logging.getLogger("peerspace.counselor_ws_routes")
 
@@ -25,18 +26,30 @@ async def student_persistent_ws(websocket: WebSocket):
             msg_type = data.get("type")
             
             if msg_type == "chat_reply":
+                effective_sid = str(data.get("session_id") or session_id).strip()
                 alias = data.get("alias", "Student")
                 msg_id = data.get("msg_id")
-                logger.info("Forwarding student_chat_reply from session %s (%s, msg_id=%s) to %d counselor(s)", session_id, alias, msg_id, len(counselor_ws_manager.active_counselors))
+                msg_text = data.get("message", "")
+
+                # Mark session active with counselor intervention
+                set_counselor_active(effective_sid, True)
+                if effective_sid in sessions:
+                    sessions[effective_sid].message_count += 1
+                    try:
+                        sessions[effective_sid].agent.add_message("user", msg_text)
+                    except Exception:
+                        pass
+
+                logger.info("Forwarding student_chat_reply from session %s (%s, msg_id=%s) to %d counselor(s)", effective_sid, alias, msg_id, len(counselor_ws_manager.active_counselors))
                 # Forward to counselors
                 await counselor_ws_manager.send_to_counselors({
                     "type": "student_chat_reply",
                     "msg_id": msg_id,
-                    "session_id": session_id,
+                    "session_id": effective_sid,
                     "alias": alias,
-                    "message": data.get("message")
+                    "message": msg_text
                 })
-            elif msg_type in ["offer", "answer", "ice-candidate", "mute-status"]:
+            elif msg_type in ["offer", "answer", "ice-candidate", "mute-status", "peer_disconnected"]:
                 # Signal relay back to counselor for WebRTC
                 await counselor_ws_manager.send_to_counselors({
                     "type": "student_webrtc_signal",
@@ -71,16 +84,33 @@ async def counselor_persistent_ws(websocket: WebSocket):
                 continue
 
             msg_type = data.get("type")
-            if msg_type == "counselor_chat":
-                await counselor_ws_manager.send_to_student(target_session, {
-                    "type": "counselor_chat",
-                    "message": data.get("message")
-                })
-            elif msg_type == "counselor_join_text":
-                await counselor_ws_manager.send_to_student(target_session, {
-                    "type": "counselor_join_text"
-                })
-            elif msg_type in ["offer", "answer", "ice-candidate", "mute-status"]:
+            if msg_type in ["counselor_chat", "counselor_voice_join", "counselor_join_text"]:
+                counselor_ws_manager.register_counselor_session(websocket, target_session)
+                set_counselor_active(target_session, True)
+                if msg_type == "counselor_chat" and data.get("message"):
+                    if target_session in sessions:
+                        try:
+                            sessions[target_session].agent.add_message("assistant", f"[COUNSELOR]: {data.get('message')}")
+                        except Exception:
+                            pass
+                    await counselor_ws_manager.send_to_student(target_session, {
+                        "type": "counselor_chat",
+                        "message": data.get("message")
+                    })
+                elif msg_type == "counselor_voice_join":
+                    if target_session in sessions:
+                        try:
+                            sessions[target_session].agent.add_message("assistant", "[COUNSELOR JOINED LIVE VOICE CALL]")
+                        except Exception:
+                            pass
+                    await counselor_ws_manager.send_to_student(target_session, {
+                        "type": "counselor_join_voice"
+                    })
+                else:
+                    await counselor_ws_manager.send_to_student(target_session, {
+                        "type": "counselor_join_text"
+                    })
+            elif msg_type in ["offer", "answer", "ice-candidate", "mute-status", "peer_disconnected"]:
                 await counselor_ws_manager.send_to_student(target_session, {
                     "type": "counselor_webrtc_signal",
                     "signal": data
@@ -91,6 +121,13 @@ async def counselor_persistent_ws(websocket: WebSocket):
                 })
             elif msg_type == "counselor_leave_text":
                 logger.info("Counselor ending live text session with student %s", target_session)
+                counselor_ws_manager.unregister_counselor_session(websocket, target_session)
+                set_counselor_active(target_session, False)
+                if target_session in sessions:
+                    try:
+                        sessions[target_session].agent.add_message("assistant", "[COUNSELOR ENDED INTERVENTION]")
+                    except Exception:
+                        pass
                 await counselor_ws_manager.send_to_student(target_session, {
                     "type": "counselor_leave_text"
                 })

@@ -19,6 +19,7 @@ class SessionEntry:
         self.alias = alias
         self.last_accessed = time.time()
         self.message_count = 0
+        self.counselor_active: bool = False
 
 sessions: OrderedDict[str, SessionEntry] = OrderedDict()
 
@@ -60,3 +61,18 @@ def get_or_create_agent(session_id: Optional[str] = None, alias: Optional[str] =
         elif alias and alias != entry.alias:
             entry.alias = alias
         return entry.agent, session_id, entry.alias
+
+def set_counselor_active(session_id: str, active: bool = True) -> bool:
+    """Sets whether a counselor is currently active in an intervention for this session."""
+    if session_id in sessions:
+        sessions[session_id].counselor_active = active
+        sessions[session_id].last_accessed = time.time()
+        return True
+    return False
+
+def is_counselor_active(session_id: str) -> bool:
+    """Checks if a counselor is actively intervening in this session."""
+    if session_id in sessions:
+        return sessions[session_id].counselor_active
+    return False
+

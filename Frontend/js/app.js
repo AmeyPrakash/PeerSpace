@@ -119,6 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let counselorWS = null;
     let counselorActive = false;
     let activeTargetSessionId = null;
+    let activeTargetAlias = null;
     let studentWSRetryTimer = null;
     let counselorWSRetryTimer = null;
 
@@ -167,6 +168,19 @@ document.addEventListener("DOMContentLoaded", () => {
             if (currentAliasText) currentAliasText.textContent = currentAlias;
             if (heroAliasName) heroAliasName.textContent = currentAlias;
             if (localPeerName) localPeerName.textContent = `${currentAlias} (You)`;
+
+            // Sync counselor active state with live backend confirmation
+            if (data.counselor_active) {
+                counselorActive = true;
+                sessionStorage.setItem("peerspace_counselor_active_" + sessionId, "true");
+                if (counselorConnectedBanner) counselorConnectedBanner.style.display = "flex";
+                if (heroIntro) heroIntro.style.display = "none";
+            } else {
+                counselorActive = false;
+                sessionStorage.removeItem("peerspace_counselor_active_" + sessionId);
+                if (counselorConnectedBanner) counselorConnectedBanner.style.display = "none";
+                if (heroIntro) heroIntro.style.display = "block";
+            }
 
             // Ensure persistent student WS is connected with the validated session_id
             if (!studentWS || prevSessionId !== sessionId || randomize) {
@@ -248,7 +262,7 @@ document.addEventListener("DOMContentLoaded", () => {
             this.localStream = null;
             this.remoteStream = null;
             this.isMuted = false;
-            this.currentPeerAlias = null;
+            this.currentPeerAlias = config.peerAlias || (this.mode === 'counselor' ? (activeTargetAlias || "Student") : (this.mode === 'student' ? "Campus Counselor" : null));
             this.timerInterval = null;
             this.secondsElapsed = 0;
             this.audioContext = null;
@@ -264,12 +278,19 @@ document.addEventListener("DOMContentLoaded", () => {
             };
         }
 
-        async startVoiceCall() {
+        async startVoiceCall(isInitiator = true, peerAlias = null) {
+            if (peerAlias && peerAlias !== "null" && peerAlias !== "undefined") {
+                this.currentPeerAlias = peerAlias;
+            }
+            if (!this.currentPeerAlias || this.currentPeerAlias === "null" || this.currentPeerAlias === "undefined") {
+                this.currentPeerAlias = this.mode === 'counselor' ? (activeTargetAlias || "Student") : (this.mode === 'student' ? "Campus Counselor" : "Anonymous Peer");
+            }
+
             voiceCallOverlay.style.display = "flex";
             this.resetCallUI();
             matchmakingStage.style.display = "flex";
             activePeerStage.style.display = "none";
-            matchmakingStatusHeading.textContent = "Connecting to voice network...";
+            matchmakingStatusHeading.textContent = `Connecting to ${this.currentPeerAlias}...`;
 
             // 1. Get local microphone stream
             try {
@@ -292,7 +313,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (this.mode === 'peer') {
                 this.connectSignalingServer();
             } else {
-                await this.initiatePeerConnection(arguments.length > 0 ? arguments[0] : true);
+                await this.initiatePeerConnection(isInitiator !== undefined ? isInitiator : true);
             }
         }
 
@@ -362,16 +383,38 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         async initiatePeerConnection(isInitiator) {
-            matchmakingStage.style.display = "none";
-            activePeerStage.style.display = "flex";
+            if (!this.currentPeerAlias || this.currentPeerAlias === "null" || this.currentPeerAlias === "undefined") {
+                this.currentPeerAlias = this.mode === 'counselor' ? (activeTargetAlias || "Student") : (this.mode === 'student' ? "Campus Counselor" : "Anonymous Peer");
+            }
 
-            callLivePill.classList.add("connected");
-            callConnectionBadge.textContent = "Live 2-Way Voice";
-            callPeerLabel.textContent = `Connected with ${this.currentPeerAlias}`;
-            remotePeerName.textContent = this.currentPeerAlias;
-            remoteActivityLabel.textContent = "Connected";
+            // Set clear pod titles for participants
+            if (this.mode === 'counselor') {
+                if (localPeerName) localPeerName.textContent = "You (Counselor)";
+                if (remotePeerName) remotePeerName.textContent = this.currentPeerAlias;
+            } else if (this.mode === 'student') {
+                if (localPeerName) localPeerName.textContent = currentAlias ? `You (${currentAlias})` : "You";
+                if (remotePeerName) remotePeerName.textContent = "Campus Counselor";
+            } else {
+                if (localPeerName) localPeerName.textContent = currentAlias ? `You (${currentAlias})` : "You (Anon)";
+                if (remotePeerName) remotePeerName.textContent = this.currentPeerAlias;
+            }
 
-            this.startTimer();
+            if (this.mode === 'student' && !isInitiator) {
+                // Student waiting for counselor to connect
+                matchmakingStage.style.display = "flex";
+                activePeerStage.style.display = "none";
+                callConnectionBadge.textContent = "Waiting for Counselor...";
+                callPeerLabel.textContent = `Waiting for ${this.currentPeerAlias} to join...`;
+                matchmakingStatusHeading.textContent = `Waiting for ${this.currentPeerAlias} to join voice call...`;
+            } else {
+                matchmakingStage.style.display = "none";
+                activePeerStage.style.display = "flex";
+                callLivePill.classList.add("connected");
+                callConnectionBadge.textContent = isInitiator ? (this.mode === 'counselor' ? "Calling Student..." : "Connecting...") : "Live 2-Way Voice";
+                callPeerLabel.textContent = `Connected with ${this.currentPeerAlias}`;
+                remoteActivityLabel.textContent = "Connected";
+                this.startTimer();
+            }
 
             this.peerConnection = new RTCPeerConnection(this.rtcConfig);
 
@@ -430,8 +473,21 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         async handleRemoteOffer(offer) {
-            if (!this.peerConnection) return;
             try {
+                if (!this.peerConnection) {
+                    if (!this.localStream) {
+                        this.localStream = await navigator.mediaDevices.getUserMedia({
+                            audio: {
+                                echoCancellation: true,
+                                noiseSuppression: true,
+                                autoGainControl: true
+                            },
+                            video: false
+                        });
+                        this.setupLocalAudioVisualizer(this.localStream);
+                    }
+                    await this.initiatePeerConnection(false);
+                }
                 await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
                 const answer = await this.peerConnection.createAnswer();
                 await this.peerConnection.setLocalDescription(answer);
@@ -439,6 +495,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     type: "answer",
                     answer: answer
                 });
+
+                // Transition UI to active call
+                matchmakingStage.style.display = "none";
+                activePeerStage.style.display = "flex";
+                callLivePill.classList.add("connected");
+                callConnectionBadge.textContent = "Live 2-Way Voice";
+                callPeerLabel.textContent = `Connected with ${this.currentPeerAlias}`;
+                remotePeerName.textContent = this.currentPeerAlias;
+                remoteActivityLabel.textContent = "Connected";
+                this.startTimer();
             } catch (e) {
                 console.error("Handle offer error:", e);
             }
@@ -448,6 +514,13 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!this.peerConnection) return;
             try {
                 await this.peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                matchmakingStage.style.display = "none";
+                activePeerStage.style.display = "flex";
+                callLivePill.classList.add("connected");
+                callConnectionBadge.textContent = "Live 2-Way Voice";
+                callPeerLabel.textContent = `Connected with ${this.currentPeerAlias}`;
+                remoteActivityLabel.textContent = "Connected";
+                this.startTimer();
             } catch (e) {
                 console.error("Handle answer error:", e);
             }
@@ -609,13 +682,22 @@ document.addEventListener("DOMContentLoaded", () => {
             this.secondsElapsed = 0;
             callDurationTimer.textContent = "00:00";
             callLivePill.classList.remove("connected");
-            callConnectionBadge.textContent = "Matching...";
-            callPeerLabel.textContent = "Searching for peer...";
+            callConnectionBadge.textContent = "Connecting...";
+            const peerName = this.currentPeerAlias || (this.mode === 'counselor' ? (activeTargetAlias || "Student") : (this.mode === 'student' ? "Campus Counselor" : "peer"));
+            callPeerLabel.textContent = `Connecting with ${peerName}...`;
             localOrbWrapper.className = "peer-orb-wrapper";
             remoteOrbWrapper.className = "peer-orb-wrapper";
             this.isMuted = false;
             callMuteBtn.classList.remove("active-muted");
             muteBtnLabel.textContent = "Mute";
+
+            if (this.mode !== 'peer') {
+                if (callNextPeerBtn) callNextPeerBtn.style.display = "none";
+                if (callCounselorAlertBtn) callCounselorAlertBtn.style.display = "none";
+            } else {
+                if (callNextPeerBtn) callNextPeerBtn.style.display = "inline-flex";
+                if (callCounselorAlertBtn) callCounselorAlertBtn.style.display = "inline-flex";
+            }
         }
 
         endVoiceCall() {
@@ -637,6 +719,9 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             if (this.timerInterval) clearInterval(this.timerInterval);
             if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
+
+            if (callNextPeerBtn) callNextPeerBtn.style.display = "inline-flex";
+            if (callCounselorAlertBtn) callCounselorAlertBtn.style.display = "inline-flex";
 
             voiceCallOverlay.style.display = "none";
             this.resetCallUI();
@@ -795,19 +880,20 @@ document.addEventListener("DOMContentLoaded", () => {
                         
                         if (mode === "voice") {
                             voiceCallOverlay.style.display = "flex";
-                            document.getElementById("voice-status-badge").textContent = "Waiting for Counselor";
-                            document.getElementById("voice-status-badge").className = "pastel-badge orange";
-                            
-                            if (!window.directVoiceChatManager) {
-                                window.directVoiceChatManager = new PeerVoiceChatManager({
-                                    mode: 'student',
-                                    signalSender: (signalData) => {
-                                        if (studentWS && studentWS.readyState === WebSocket.OPEN) {
-                                            studentWS.send(JSON.stringify(signalData));
-                                        }
+                            if (callConnectionBadge) callConnectionBadge.textContent = "Waiting for Counselor...";
+                            if (callPeerLabel) callPeerLabel.textContent = "Connecting to Campus Counselor...";
+                            if (matchmakingStatusHeading) matchmakingStatusHeading.textContent = "Waiting for Campus Counselor to join voice call...";
+
+                            window.directVoiceChatManager = new PeerVoiceChatManager({
+                                mode: 'student',
+                                peerAlias: "Campus Counselor",
+                                signalSender: (signalData) => {
+                                    if (studentWS && studentWS.readyState === WebSocket.OPEN) {
+                                        studentWS.send(JSON.stringify(signalData));
                                     }
-                                });
-                            }
+                                }
+                            });
+                            await window.directVoiceChatManager.startVoiceCall(false, "Campus Counselor");
                         }
                     } else {
                         contactCounselorBtn.textContent = "Contact Counselor Directly";
@@ -880,16 +966,14 @@ document.addEventListener("DOMContentLoaded", () => {
         // 1. If Counselor has intervened / is active in this session, route directly to Counselor
         if (counselorActive) {
             sendCounselorReply(text);
-            // If student is also in P2P text chat, forward to peer as well
-            if (peerTextChatManager && peerTextChatManager.isActive()) {
-                peerTextChatManager.sendMessage(text);
-            }
+            sendButton.disabled = false;
             return;
         }
 
         // 2. If student is in P2P Text Chat with a peer
         if (peerTextChatManager && peerTextChatManager.isActive()) {
             peerTextChatManager.sendMessage(text);
+            sendButton.disabled = false;
             return;
         }
 
@@ -909,6 +993,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (res.status === 429) {
                 setTyping(false);
+                sendButton.disabled = false;
                 appendMessage("coach", "You're typing super fast! Take a breath and wait a few seconds before sending another message.");
                 return;
             }
@@ -917,10 +1002,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const data = await res.json();
             setTyping(false);
+            sendButton.disabled = false;
 
             if (data.session_id && SESSION_PATTERN.test(data.session_id)) {
                 sessionId = data.session_id;
                 localStorage.setItem("peerspace_session_id", sessionId);
+            }
+
+            if (data.counselor_active) {
+                counselorActive = true;
+                sessionStorage.setItem("peerspace_counselor_active_" + sessionId, "true");
+                if (counselorConnectedBanner) counselorConnectedBanner.style.display = "flex";
+                if (heroIntro) heroIntro.style.display = "none";
+                const counselorWaitingBanner = document.getElementById("counselor-waiting-banner");
+                if (counselorWaitingBanner) counselorWaitingBanner.style.display = "none";
             }
 
             if (data.reply) {
@@ -931,6 +1026,7 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (err) {
             console.error("Chat error:", err);
             setTyping(false);
+            sendButton.disabled = false;
             appendMessage("coach", "Hey, my connection dropped for a second. Could you repeat that?");
         }
     }
@@ -1035,6 +1131,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     body: JSON.stringify({ session_id: sessionId })
                 });
 
+                sessionStorage.removeItem("peerspace_counselor_active_" + sessionId);
                 sessionId = generateUUID();
                 localStorage.setItem("peerspace_session_id", sessionId);
                 counselorActive = false;
@@ -1238,14 +1335,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         await dispatchAlertAction(alertId, "DISPATCHED");
                     }
                     
-                    openCounselorChat(sid, alias);
-                    // Slight delay to ensure WS is initialized and panel is open
-                    setTimeout(() => {
-                        const counselorStartCallBtn = document.getElementById("counselor-start-call-btn");
-                        if (counselorStartCallBtn) {
-                            counselorStartCallBtn.click();
-                        }
-                    }, 100);
+                    await openCounselorVoiceCall(sid, alias);
                 });
             });
 
@@ -1283,10 +1373,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 <td><code>${s.session_id}</code></td>
                 <td>${s.messages} msg(s)</td>
                 <td>${s.last_active}</td>
-                <td><button class="btn-secondary join-counselor-chat-btn" data-id="${s.full_id}" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Join Chat</button></td>
+                <td>
+                    <button class="btn-secondary join-counselor-chat-btn" data-id="${s.full_id}" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Text Chat</button>
+                    <button class="btn-secondary join-counselor-voice-row-btn" data-id="${s.full_id}" style="margin-left: 0.4rem; padding: 0.3rem 0.8rem; font-size: 0.8rem;">Voice Call</button>
+                </td>
             `;
             tr.querySelector('.join-counselor-chat-btn').addEventListener('click', () => {
                 openCounselorChat(s.full_id, s.alias);
+            });
+            tr.querySelector('.join-counselor-voice-row-btn').addEventListener('click', () => {
+                openCounselorVoiceCall(s.full_id, s.alias);
             });
             sessionsTableBody.appendChild(tr);
         });
@@ -1303,10 +1399,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
     checkAlertBadge();
 
-    // -------------------------------------------------------------
-    // 9. Counselor Live Chat Integration
-    // -------------------------------------------------------------
     const counselorConnectedBanner = document.getElementById("counselor-connected-banner");
+    if (counselorActive && counselorConnectedBanner) {
+        counselorConnectedBanner.style.display = "flex";
+        if (heroIntro) heroIntro.style.display = "none";
+    }
+
+    const dismissCounselorBannerBtn = document.getElementById("dismiss-counselor-banner-btn");
+    if (dismissCounselorBannerBtn) {
+        dismissCounselorBannerBtn.addEventListener("click", async () => {
+            counselorActive = false;
+            sessionStorage.removeItem("peerspace_counselor_active_" + sessionId);
+            if (counselorConnectedBanner) counselorConnectedBanner.style.display = "none";
+            if (heroIntro) heroIntro.style.display = "block";
+            try {
+                await fetch("/api/reset", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+            } catch (e) {}
+        });
+    }
+
+    const brandElement = document.querySelector(".brand");
+    if (brandElement) {
+        brandElement.style.cursor = "pointer";
+        brandElement.addEventListener("click", () => {
+            switchToStudentView();
+            if (heroIntro) heroIntro.style.display = "block";
+        });
+    }
 
     function initStudentPersistentWS() {
         if (studentWSRetryTimer) {
@@ -1342,6 +1465,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = JSON.parse(event.data);
             if (data.type === "counselor_join_text") {
                 counselorActive = true;
+                sessionStorage.setItem("peerspace_counselor_active_" + sessionId, "true");
                 if (voiceCallOverlay && voiceCallOverlay.style.display === "flex") {
                     if (typeof getActiveVoiceManager === 'function') getActiveVoiceManager().endVoiceCall();
                 }
@@ -1351,8 +1475,47 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (counselorWaitingBanner) counselorWaitingBanner.style.display = "none";
                 
                 appendMessage("coach", "A campus counselor has joined your session. Responses are now from a human professional.", "Live Counselor");
+            } else if (data.type === "counselor_join_voice") {
+                // Counselor clicked "Join Voice Call" — prepare the student side to receive the WebRTC offer
+                const counselorWaitingBanner = document.getElementById("counselor-waiting-banner");
+                if (counselorWaitingBanner) counselorWaitingBanner.style.display = "none";
+                if (heroIntro) heroIntro.style.display = "none";
+                
+                // Open voice overlay in "waiting" mode
+                voiceCallOverlay.style.display = "flex";
+                if (matchmakingStage) matchmakingStage.style.display = "flex";
+                if (activePeerStage) activePeerStage.style.display = "none";
+                if (callConnectionBadge) callConnectionBadge.textContent = "Counselor Joining...";
+                if (callPeerLabel) callPeerLabel.textContent = "Campus Counselor is joining your voice session...";
+                if (matchmakingStatusHeading) matchmakingStatusHeading.textContent = "Campus Counselor is connecting...";
+
+                // Prepare student voice manager to receive the WebRTC offer
+                if (!window.directVoiceChatManager) {
+                    window.directVoiceChatManager = new PeerVoiceChatManager({
+                        mode: 'student',
+                        peerAlias: "Campus Counselor",
+                        signalSender: (signalData) => {
+                            if (studentWS && studentWS.readyState === WebSocket.OPEN) {
+                                studentWS.send(JSON.stringify(signalData));
+                            }
+                        }
+                    });
+                    // Get microphone access in advance so there's no delay when offer arrives
+                    (async () => {
+                        try {
+                            window.directVoiceChatManager.localStream = await navigator.mediaDevices.getUserMedia({
+                                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+                                video: false
+                            });
+                            window.directVoiceChatManager.setupLocalAudioVisualizer(window.directVoiceChatManager.localStream);
+                        } catch (err) {
+                            console.warn("Mic access error:", err);
+                        }
+                    })();
+                }
             } else if (data.type === "counselor_chat" || data.type === "counselor_message") {
                 counselorActive = true;
+                sessionStorage.setItem("peerspace_counselor_active_" + sessionId, "true");
                 if (counselorConnectedBanner) counselorConnectedBanner.style.display = "flex";
                 if (heroIntro) heroIntro.style.display = "none";
                 const counselorWaitingBanner = document.getElementById("counselor-waiting-banner");
@@ -1361,6 +1524,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 appendMessage("coach", data.message, "Human Counselor");
             } else if (data.type === "counselor_leave_text") {
                 counselorActive = false;
+                sessionStorage.removeItem("peerspace_counselor_active_" + sessionId);
                 if (counselorConnectedBanner) counselorConnectedBanner.style.display = "none";
                 appendMessage("coach", "Counselor has ended the live intervention. You are back with your AI CBT coach.", "System");
             } else if (data.type === "counselor_voice_invite") {
@@ -1369,15 +1533,17 @@ document.addEventListener("DOMContentLoaded", () => {
                     inviteBanner.style.display = "flex";
                     document.getElementById("accept-counselor-call-btn").onclick = async () => {
                         inviteBanner.style.display = "none";
+                        const peerName = "Campus Counselor";
                         window.directVoiceChatManager = new PeerVoiceChatManager({
                             mode: 'student',
+                            peerAlias: peerName,
                             signalSender: (signalData) => {
                                 if (studentWS && studentWS.readyState === WebSocket.OPEN) {
                                     studentWS.send(JSON.stringify(signalData));
                                 }
                             }
                         });
-                        await window.directVoiceChatManager.startVoiceCall(false, "Counselor");
+                        await window.directVoiceChatManager.startVoiceCall(false, peerName);
                         studentWS.send(JSON.stringify({ type: "student_voice_accept" }));
                     };
                     document.getElementById("decline-counselor-call-btn").onclick = () => {
@@ -1388,9 +1554,19 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (data.type === "counselor_webrtc_signal") {
                 const counselorWaitingBanner = document.getElementById("counselor-waiting-banner");
                 if (counselorWaitingBanner) counselorWaitingBanner.style.display = "none";
-                if (window.directVoiceChatManager) {
-                    window.directVoiceChatManager.handleSignalingMessage(data.signal);
+                if (!window.directVoiceChatManager) {
+                    window.directVoiceChatManager = new PeerVoiceChatManager({
+                        mode: 'student',
+                        peerAlias: "Campus Counselor",
+                        signalSender: (signalData) => {
+                            if (studentWS && studentWS.readyState === WebSocket.OPEN) {
+                                studentWS.send(JSON.stringify(signalData));
+                            }
+                        }
+                    });
+                    voiceCallOverlay.style.display = "flex";
                 }
+                window.directVoiceChatManager.handleSignalingMessage(data.signal);
             }
         };
     }
@@ -1413,16 +1589,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const counselorSeenMsgKeys = new Set();
 
     if (counselorStartCallBtn) {
-        counselorStartCallBtn.addEventListener("click", () => {
-            if (!activeTargetSessionId || !counselorWS) return;
-            
-            counselorWS.send(JSON.stringify({
-                type: "counselor_voice_invite",
-                session_id: activeTargetSessionId
-            }));
-            
-            counselorStartCallBtn.innerHTML = "Calling...";
-            counselorStartCallBtn.disabled = true;
+        counselorStartCallBtn.addEventListener("click", async () => {
+            if (!activeTargetSessionId) return;
+            await openCounselorVoiceCall(activeTargetSessionId, activeTargetAlias);
         });
     }
 
@@ -1480,7 +1649,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 console.log(`[Counselor] student_chat_reply from ${senderAlias} (${incomingSid}):`, data.message);
 
-                if (activeSid && incomingSid === activeSid) {
+                const isChatOpen = counselorChatPanel && counselorChatPanel.style.display !== "none";
+                const sidMatches = activeSid && (
+                    incomingSid === activeSid ||
+                    incomingSid.toLowerCase() === activeSid.toLowerCase() ||
+                    incomingSid.startsWith(activeSid.substring(0, 8)) ||
+                    activeSid.startsWith(incomingSid.substring(0, 8))
+                );
+
+                if (sidMatches || (isChatOpen && (!activeSid || activeSid === "anon-session"))) {
+                    // Update active target session ID if not set or was prefix
+                    if (!activeTargetSessionId || activeTargetSessionId === "anon-session") {
+                        activeTargetSessionId = incomingSid;
+                    }
+                    if (senderAlias && senderAlias !== "Student") {
+                        activeTargetAlias = senderAlias;
+                    }
                     if (counselorChatMessages) {
                         const emptyFeed = counselorChatMessages.querySelector(".empty-feed-text");
                         if (emptyFeed) emptyFeed.remove();
@@ -1502,16 +1686,21 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             } else if (data.type === "new_alert") {
                 loadAdminDashboard();
-            } else if (data.type === "student_webrtc_signal" && String(data.session_id).trim() === String(activeTargetSessionId).trim()) {
-                if (window.directVoiceChatManager) {
+            } else if (data.type === "student_webrtc_signal") {
+                const incomingSid = String(data.session_id || "").trim();
+                const activeSid = String(activeTargetSessionId || "").trim();
+                const sidMatches = !activeSid || incomingSid === activeSid || incomingSid.startsWith(activeSid.substring(0, 8)) || activeSid.startsWith(incomingSid.substring(0, 8));
+                if (sidMatches && window.directVoiceChatManager) {
                     window.directVoiceChatManager.handleSignalingMessage(data.signal);
                 }
             } else if (data.type === "student_voice_accept" && String(data.session_id).trim() === String(activeTargetSessionId).trim()) {
                 if (counselorStartCallBtn) {
                     counselorStartCallBtn.innerHTML = "Connected";
                 }
+                const peerName = activeTargetAlias || "Student";
                 window.directVoiceChatManager = new PeerVoiceChatManager({
                     mode: 'counselor',
+                    peerAlias: peerName,
                     signalSender: (signalData) => {
                         signalData.session_id = activeTargetSessionId;
                         if (counselorWS && counselorWS.readyState === WebSocket.OPEN) {
@@ -1519,7 +1708,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         }
                     }
                 });
-                window.directVoiceChatManager.startVoiceCall(true, "Student");
+                window.directVoiceChatManager.startVoiceCall(true, peerName);
             } else if (data.type === "student_voice_decline" && String(data.session_id).trim() === String(activeTargetSessionId).trim()) {
                 if (counselorStartCallBtn) {
                     counselorStartCallBtn.innerHTML = "Call Declined";
@@ -1532,15 +1721,73 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     }
 
+    async function loadSessionTranscript(targetSessionId) {
+        if (!adminToken || !targetSessionId) return;
+        try {
+            const res = await fetch(`/api/admin/sessions/${encodeURIComponent(targetSessionId)}/transcript`, {
+                headers: { "x-admin-token": adminToken }
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (counselorChatMessages && data.transcript && data.transcript.length > 0) {
+                counselorChatMessages.innerHTML = "";
+                data.transcript.forEach(t => {
+                    const msgEl = document.createElement("div");
+                    const isUser = t.role === "user";
+                    const isCounselor = t.sender === "Counselor";
+                    const isCoach = t.sender === "AI Coach";
+
+                    if (isCounselor) {
+                        msgEl.className = "message user-message";
+                        msgEl.innerHTML = `
+                            <div class="message-content">
+                                <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; opacity: 0.8;">Counselor (You)</strong>
+                                ${escapeHtml(t.content).replace(/\n/g, '<br/>')}
+                            </div>
+                        `;
+                    } else if (isUser) {
+                        msgEl.className = "message ai-message";
+                        msgEl.innerHTML = `
+                            <div class="message-content" style="border-left: 3px solid #10b981;">
+                                <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(t.sender || "Student")}</strong>
+                                ${escapeHtml(t.content).replace(/\n/g, '<br/>')}
+                            </div>
+                        `;
+                    } else if (isCoach) {
+                        msgEl.className = "message";
+                        msgEl.innerHTML = `
+                            <div class="message-content" style="border-left: 3px solid #3b82f6; background: rgba(59, 130, 246, 0.08); padding: 0.6rem 0.8rem; border-radius: 8px; margin-bottom: 0.5rem;">
+                                <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; color: #3b82f6;">AI Coach (Past Turn)</strong>
+                                <span style="font-size: 0.88rem; color: var(--text-main);">${escapeHtml(t.content).replace(/\n/g, '<br/>')}</span>
+                            </div>
+                        `;
+                    } else {
+                        msgEl.className = "message";
+                        msgEl.innerHTML = `
+                            <div style="text-align: center; font-size: 0.75rem; color: var(--text-muted); margin: 0.4rem 0;">
+                                <em>${escapeHtml(t.content)}</em>
+                            </div>
+                        `;
+                    }
+                    counselorChatMessages.appendChild(msgEl);
+                });
+                counselorChatMessages.scrollTop = counselorChatMessages.scrollHeight;
+            }
+        } catch (e) {
+            console.error("Failed to load session transcript:", e);
+        }
+    }
+
     function openCounselorChat(targetSessionId, targetAlias = null) {
         activeTargetSessionId = String(targetSessionId).trim();
+        activeTargetAlias = targetAlias ? String(targetAlias).trim() : null;
         if (!counselorWS || counselorWS.readyState !== WebSocket.OPEN) {
             initCounselorWS();
         }
         
         const titleEl = document.getElementById("counselor-chat-title");
         if (titleEl) {
-            const displayName = targetAlias || (activeTargetSessionId.length > 12 ? activeTargetSessionId.substring(0, 8) + '...' : activeTargetSessionId);
+            const displayName = activeTargetAlias || (activeTargetSessionId.length > 12 ? activeTargetSessionId.substring(0, 8) + '...' : activeTargetSessionId);
             titleEl.textContent = `Live Session with ${displayName}`;
         }
 
@@ -1558,11 +1805,61 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (counselorChatPanel) counselorChatPanel.style.display = "block";
         if (counselorChatMessages) {
-            counselorChatMessages.innerHTML = '<div class="empty-feed-text">Session connected. Send a message to start.</div>';
+            counselorChatMessages.innerHTML = '<div class="empty-feed-text">Loading student session history...</div>';
             counselorChatMessages.style.display = "flex";
             counselorChatMessages.style.flexDirection = "column";
         }
+        loadSessionTranscript(activeTargetSessionId);
         if (counselorChatPanel) counselorChatPanel.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function openCounselorVoiceCall(targetSessionId, targetAlias = null) {
+        activeTargetSessionId = String(targetSessionId).trim();
+        activeTargetAlias = targetAlias ? String(targetAlias).trim() : "Student";
+
+        if (!counselorWS || counselorWS.readyState !== WebSocket.OPEN) {
+            initCounselorWS();
+        }
+
+        const sendJoinVoice = () => {
+            if (counselorWS && counselorWS.readyState === WebSocket.OPEN) {
+                counselorWS.send(JSON.stringify({
+                    type: "counselor_voice_join",
+                    session_id: activeTargetSessionId
+                }));
+            }
+        };
+
+        if (counselorWS && counselorWS.readyState === WebSocket.OPEN) {
+            sendJoinVoice();
+        } else {
+            setTimeout(sendJoinVoice, 400);
+        }
+
+        // Close counselor text chat panel if open so it doesn't clash
+        if (counselorChatPanel) {
+            counselorChatPanel.style.display = "none";
+        }
+
+        // Display voice call overlay directly
+        voiceCallOverlay.style.display = "flex";
+        if (localPeerName) localPeerName.textContent = "You (Counselor)";
+        if (remotePeerName) remotePeerName.textContent = activeTargetAlias;
+        if (callPeerLabel) callPeerLabel.textContent = `Connecting with ${activeTargetAlias}...`;
+        if (callConnectionBadge) callConnectionBadge.textContent = "Calling Student...";
+
+        window.directVoiceChatManager = new PeerVoiceChatManager({
+            mode: 'counselor',
+            peerAlias: activeTargetAlias,
+            signalSender: (signalData) => {
+                signalData.session_id = activeTargetSessionId;
+                if (counselorWS && counselorWS.readyState === WebSocket.OPEN) {
+                    counselorWS.send(JSON.stringify(signalData));
+                }
+            }
+        });
+
+        await window.directVoiceChatManager.startVoiceCall(true, activeTargetAlias);
     }
 
     if (closeCounselorChatBtn) {
@@ -1575,6 +1872,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             counselorChatPanel.style.display = "none";
             activeTargetSessionId = null;
+            activeTargetAlias = null;
         });
     }
 
