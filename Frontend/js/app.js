@@ -1375,8 +1375,11 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionsTableBody.innerHTML = "";
         sessions.forEach((s) => {
             const tr = document.createElement("tr");
+            const reasoningTag = s.has_reasoning
+                ? `<span class="pastel-badge blue" style="font-size: 0.65rem; margin-left: 0.4rem; padding: 0.15rem 0.45rem; vertical-align: middle;" title="${escapeHtml(s.reasoning_preview || 'AI Reasoning active')}">AI Analyzed</span>`
+                : '';
             tr.innerHTML = `
-                <td><strong>${s.alias}</strong></td>
+                <td><strong>${escapeHtml(s.alias)}</strong>${reasoningTag}</td>
                 <td><code>${s.session_id}</code></td>
                 <td>${s.messages} msg(s)</td>
                 <td>${s.last_active}</td>
@@ -1691,6 +1694,36 @@ document.addEventListener("DOMContentLoaded", () => {
                     // Update dashboard count or table if message belongs to another student
                     loadAdminDashboard();
                 }
+            } else if (data.type === "agent_reasoning") {
+                const incomingSid = String(data.session_id || "").trim();
+                const activeSid = String(activeTargetSessionId || "").trim();
+                const sidMatches = activeSid && (
+                    incomingSid === activeSid ||
+                    incomingSid.toLowerCase() === activeSid.toLowerCase() ||
+                    incomingSid.startsWith(activeSid.substring(0, 8)) ||
+                    activeSid.startsWith(incomingSid.substring(0, 8))
+                );
+
+                if (sidMatches && counselorChatMessages) {
+                    const emptyFeed = counselorChatMessages.querySelector(".empty-feed-text");
+                    if (emptyFeed) emptyFeed.remove();
+
+                    const reasoningEl = document.createElement("div");
+                    reasoningEl.className = "message reasoning-event";
+                    reasoningEl.innerHTML = `
+                        <div class="message-content" style="border-left: 3px solid #1F6C9F; background: rgba(31, 108, 159, 0.08); padding: 0.65rem 0.85rem; border-radius: 6px; margin: 0.5rem 0;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                                <span class="pastel-badge blue" style="font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase;">Live AI Reasoning Analysis</span>
+                                <span style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono, monospace);">${escapeHtml(data.timestamp || "")}</span>
+                            </div>
+                            <div style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45; font-family: var(--font-mono, monospace);">
+                                ${escapeHtml(data.reasoning).replace(/\n/g, '<br/>')}
+                            </div>
+                        </div>
+                    `;
+                    counselorChatMessages.appendChild(reasoningEl);
+                    counselorChatMessages.scrollTop = counselorChatMessages.scrollHeight;
+                }
             } else if (data.type === "new_alert") {
                 loadAdminDashboard();
             } else if (data.type === "student_webrtc_signal") {
@@ -1736,49 +1769,69 @@ document.addEventListener("DOMContentLoaded", () => {
             });
             if (!res.ok) return;
             const data = await res.json();
-            if (counselorChatMessages && data.transcript && data.transcript.length > 0) {
+            if (counselorChatMessages) {
                 counselorChatMessages.innerHTML = "";
-                data.transcript.forEach(t => {
-                    const msgEl = document.createElement("div");
-                    const isUser = t.role === "user";
-                    const isCounselor = t.sender === "Counselor";
-                    const isCoach = t.sender === "AI Coach";
 
-                    if (isCounselor) {
-                        msgEl.className = "message user-message";
-                        msgEl.innerHTML = `
-                            <div class="message-content">
-                                <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; opacity: 0.8;">Counselor (You)</strong>
-                                ${escapeHtml(t.content).replace(/\n/g, '<br/>')}
+                if (data.last_reasoning) {
+                    const reasoningCard = document.createElement("div");
+                    reasoningCard.className = "message reasoning-banner";
+                    reasoningCard.innerHTML = `
+                        <div class="message-content" style="border-left: 3px solid #1F6C9F; background: rgba(31, 108, 159, 0.08); padding: 0.65rem 0.85rem; border-radius: 6px; margin-bottom: 0.75rem;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                                <span class="pastel-badge blue" style="font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase;">Latest AI Reasoning & Cognitive Analysis</span>
+                                <span style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono, monospace);">Analyzes Info & Decides Action</span>
                             </div>
-                        `;
-                    } else if (isUser) {
-                        msgEl.className = "message ai-message";
-                        msgEl.innerHTML = `
-                            <div class="message-content" style="border-left: 3px solid #10b981;">
-                                <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(t.sender || "Student")}</strong>
-                                ${escapeHtml(t.content).replace(/\n/g, '<br/>')}
+                            <div style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45; font-family: var(--font-mono, monospace);">
+                                ${escapeHtml(data.last_reasoning).replace(/\n/g, '<br/>')}
                             </div>
-                        `;
-                    } else if (isCoach) {
-                        msgEl.className = "message";
-                        msgEl.innerHTML = `
-                            <div class="message-content" style="border-left: 3px solid #3b82f6; background: rgba(59, 130, 246, 0.08); padding: 0.6rem 0.8rem; border-radius: 8px; margin-bottom: 0.5rem;">
-                                <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; color: #3b82f6;">AI Coach (Past Turn)</strong>
-                                <span style="font-size: 0.88rem; color: var(--text-main);">${escapeHtml(t.content).replace(/\n/g, '<br/>')}</span>
-                            </div>
-                        `;
-                    } else {
-                        msgEl.className = "message";
-                        msgEl.innerHTML = `
-                            <div style="text-align: center; font-size: 0.75rem; color: var(--text-muted); margin: 0.4rem 0;">
-                                <em>${escapeHtml(t.content)}</em>
-                            </div>
-                        `;
-                    }
-                    counselorChatMessages.appendChild(msgEl);
-                });
-                counselorChatMessages.scrollTop = counselorChatMessages.scrollHeight;
+                        </div>
+                    `;
+                    counselorChatMessages.appendChild(reasoningCard);
+                }
+
+                if (data.transcript && data.transcript.length > 0) {
+                    data.transcript.forEach(t => {
+                        const msgEl = document.createElement("div");
+                        const isUser = t.role === "user";
+                        const isCounselor = t.sender === "Counselor";
+                        const isCoach = t.sender === "AI Coach";
+
+                        if (isCounselor) {
+                            msgEl.className = "message user-message";
+                            msgEl.innerHTML = `
+                                <div class="message-content">
+                                    <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; opacity: 0.8;">Counselor (You)</strong>
+                                    ${escapeHtml(t.content).replace(/\n/g, '<br/>')}
+                                </div>
+                            `;
+                        } else if (isUser) {
+                            msgEl.className = "message ai-message";
+                            msgEl.innerHTML = `
+                                <div class="message-content" style="border-left: 3px solid #10b981;">
+                                    <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(t.sender || "Student")}</strong>
+                                    ${escapeHtml(t.content).replace(/\n/g, '<br/>')}
+                                </div>
+                            `;
+                        } else if (isCoach) {
+                            msgEl.className = "message";
+                            msgEl.innerHTML = `
+                                <div class="message-content" style="border-left: 3px solid #3b82f6; background: rgba(59, 130, 246, 0.08); padding: 0.6rem 0.8rem; border-radius: 8px; margin-bottom: 0.5rem;">
+                                    <strong style="display:block; margin-bottom: 0.2rem; font-size: 0.8rem; color: #3b82f6;">AI Coach (Past Turn)</strong>
+                                    <span style="font-size: 0.88rem; color: var(--text-main);">${escapeHtml(t.content).replace(/\n/g, '<br/>')}</span>
+                                </div>
+                            `;
+                        } else {
+                            msgEl.className = "message";
+                            msgEl.innerHTML = `
+                                <div style="text-align: center; font-size: 0.75rem; color: var(--text-muted); margin: 0.4rem 0;">
+                                    <em>${escapeHtml(t.content)}</em>
+                                </div>
+                            `;
+                        }
+                        counselorChatMessages.appendChild(msgEl);
+                    });
+                    counselorChatMessages.scrollTop = counselorChatMessages.scrollHeight;
+                }
             }
         } catch (e) {
             console.error("Failed to load session transcript:", e);

@@ -55,6 +55,22 @@ async def chat_api(payload: ChatPayload, request: Request):
 
     reply = await run_in_threadpool(agent.chat, payload.message, session_id=sid, alias=student_alias)
 
+    # Broadcast AI Coach reasoning and cognitive memory to on-duty counselors for real-time observability
+    agent_mem = getattr(agent, "memory", None)
+    if getattr(agent, "last_reasoning", None) or (agent_mem and agent_mem.has_context()):
+        try:
+            await counselor_ws_manager.send_to_counselors({
+                "type": "agent_reasoning",
+                "session_id": sid,
+                "alias": student_alias,
+                "timestamp": time.strftime("%I:%M %p"),
+                "user_message": payload.message,
+                "reasoning": getattr(agent, "last_reasoning", None),
+                "memory_profile": agent_mem.get_summary_dict() if agent_mem else {}
+            })
+        except Exception:
+            pass
+
     len_after = len(COUNSELOR_ALERTS)
     if len_after > len_before:
         for alert in COUNSELOR_ALERTS[len_before:len_after]:

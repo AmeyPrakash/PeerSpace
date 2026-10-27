@@ -74,8 +74,15 @@ def run_agent(student_message: str, messages_history: list = None, verbose: bool
         if verbose:
             print(answer)
 
+        # Extract internal reasoning
+        reasoning_match = re.search(r"(?:Reasoning|Thought):\s*(.*?)(?=\n(?:Action|Final Answer|Observation):|\Z)", answer, re.DOTALL | re.IGNORECASE)
+        if reasoning_match and verbose:
+            print(f"\n[Reasoning]:\n{reasoning_match.group(1).strip()}")
+
         if "Final Answer:" in answer:
             final_response = answer.split("Final Answer:", 1)[1].strip()
+            # Strip trailing directives
+            final_response = re.split(r'\n(?:Reasoning|Thought|Action):', final_response, flags=re.IGNORECASE)[0].strip()
             break
 
         match = re.search(r"Action:\s*([a-zA-Z0-9_]{1,50})\(\s*[\"']?(.*?)[\"']?\s*\)", answer, re.DOTALL)
@@ -97,10 +104,14 @@ def run_agent(student_message: str, messages_history: list = None, verbose: bool
             messages.append({"role": "assistant", "content": answer})
             messages.append({"role": "user", "content": f"Observation: {observation}"})
         else:
-            final_response = answer
+            # Strip any leading reasoning blocks
+            clean_ans = re.sub(r'^(?:Reasoning|Thought):\s*.*?(?=(?:\n\n|\n[A-Z]|\Z))', '', answer, flags=re.DOTALL | re.IGNORECASE)
+            final_response = clean_ans.strip()
             break
 
     if not final_response:
         final_response = "Hey, I'm right here with you. How are things feeling right now?"
 
+    # Ensure no internal Reasoning is leaked
+    final_response = re.sub(r'^(?:Reasoning|Thought):\s*.*?(?=(?:\n\n|\n[A-Z]|\Z))', '', final_response, flags=re.DOTALL | re.IGNORECASE).strip()
     return final_response

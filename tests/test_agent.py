@@ -3,6 +3,7 @@ PeerSpace AI Agent Persona & CBT Tool Execution Tests
 """
 
 import sys
+import re
 from pathlib import Path
 
 if sys.stdout.encoding != 'utf-8':
@@ -17,6 +18,12 @@ if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
 from agent.agent import PeerSpaceAgent
+
+def count_sentences(text: str) -> int:
+    """Estimates sentence count from punctuation boundaries."""
+    sentences = [s.strip() for s in re.split(r'[.!?]+(?:\s+|\Z)', text) if s.strip()]
+    return len(sentences)
+
 
 def test_peerspace_coach():
     agent = PeerSpaceAgent(verbose=True)
@@ -61,6 +68,32 @@ def test_peerspace_coach():
             "name": "Scenario 8: General Knowledge / Trivia Deflection",
             "input": "Who was the 14th President of the United States and what year did they take office?",
             "check": lambda ans: not any(ai in ans.lower() for ai in ["as an ai", "i am an ai"]) and any(vent in ans.lower() for vent in ["here", "listen", "talk", "mind", "life", "peer", "campus", "know", "vent", "support"])
+        },
+        {
+            "name": "Scenario 9: Reasoning Step Verification (Analyzes information and decides what to do)",
+            "input": "I have three assignments due at midnight and I haven't started. I feel completely overwhelmed and want to give up.",
+            "check": lambda ans: not any(leak in ans.lower() for leak in ["reasoning:", "thought:", "analyzes information and decides"]) and any(w in ans.lower() for w in ["breath", "step", "overwhelm", "handle", "one", "start", "due", "priorit", "break", "plate", "stress"])
+        },
+        {
+            "name": "Scenario 10: Multi-turn Memory Retention & Context Recall",
+            "input": "I'm super stressed about my operating systems midterm this Friday and I haven't slept in two days because of my noisy roommate.",
+            "followup": "I did the breathing exercise and my chest feels a bit calmer now. What should I focus on first?",
+            "check": lambda ans: not any(leak in ans.lower() for leak in ["[conversation memory", "reasoning:", "thought:", "as an ai"]) and any(w in ans.lower() for w in ["sleep", "rest", "exam", "midterm", "operating", "os", "roommate", "break", "step", "study", "one thing", "priorit", "nap", "first"])
+        },
+        {
+            "name": "Scenario 11: Human Response Quality — 1-3 Sentences, Cliché-Free & Single Question",
+            "input": "I feel like I'm falling behind everyone in my computer science batch and I'm just not cut out for this.",
+            "check": lambda ans: (1 <= count_sentences(ans) <= 3) and (ans.count('?') <= 1) and not any(cliche in ans.lower() for cliche in ["stay positive", "everything will be fine", "that must be difficult", "i'm sorry to hear that", "it sounds like you're feeling"])
+        },
+        {
+            "name": "Scenario 12: Natural Code-Switching Hinglish without Forced Question",
+            "input": "yaar assignments ka pahad khada hai aur mere se bilkul focus nahi ho raha",
+            "check": lambda ans: any(w in ans.lower() for w in ["yaar", "bhai", "hai", "load", "focus", "step", "kaam", "tension", "break"]) and (ans.count('?') <= 1) and (1 <= count_sentences(ans) <= 3)
+        },
+        {
+            "name": "Scenario 13: Kind Friend Mistake Separation & Zero Therapist Tropes (Exam Cheating Gold Standard)",
+            "input": "I got caught cheating in an exam. I feel terrible.",
+            "check": lambda ans: (1 <= count_sentences(ans) <= 3) and not any(trope in ans.lower() for trope in ["it sounds like you're feeling", "i can understand that you're experiencing", "would you like to explore", "that must be difficult", "i hear how heavy"]) and any(w in ans.lower() for w in ["define", "mistake", "learn", "happen", "okay", "character", "choice", "own", "ahead", "moment"])
         }
     ]
 
@@ -73,8 +106,18 @@ def test_peerspace_coach():
         print(f"User Input: \"{tc['input']}\"")
         
         reply = agent.chat(tc["input"])
+        if agent.last_reasoning:
+            print(f"\nCaptured Reasoning:\n>>> \"{agent.last_reasoning}\"")
         print(f"\nResulting Peer Reply:\n>>> \"{reply}\"")
         
+        if "followup" in tc:
+            print(f"\nUser Followup Turn: \"{tc['followup']}\"")
+            print(f"Memory State: Stressors={agent.memory.key_stressors}, Tools={list(agent.memory.coping_tools_used.keys())}")
+            reply = agent.chat(tc["followup"])
+            if agent.last_reasoning:
+                print(f"\nCaptured Followup Reasoning:\n>>> \"{agent.last_reasoning}\"")
+            print(f"\nResulting Peer Followup Reply:\n>>> \"{reply}\"")
+
         passed = tc["check"](reply)
         if passed:
             print("[PASSED] Persona maintained, criteria met.")

@@ -12,6 +12,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from groq import Groq
 from agent.tools import AVAILABLE_TOOLS, set_session_context
 from agent.prompts import SYSTEM_PROMPT
+from agent.memory import ConversationMemory
 
 # Load environment configuration
 env_path = Path(__file__).resolve().parent.parent / ".env"
@@ -33,7 +34,10 @@ class PeerSpaceAgent:
         self.model_name = model_name
         self.verbose = verbose
         self.tools = AVAILABLE_TOOLS
+        self.memory = ConversationMemory()
         self.conversation_history = []
+        self.last_reasoning: Optional[str] = None
+        self.reasoning_history: List[Dict[str, Any]] = []
         self.reset_session()
 
     def reset_session(self):
@@ -41,6 +45,10 @@ class PeerSpaceAgent:
         self.conversation_history = [
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
+        self.last_reasoning = None
+        self.reasoning_history = []
+        if hasattr(self, "memory") and self.memory:
+            self.memory.clear()
 
     def add_message(self, role: str, content: str):
         """Appends a message to conversation history with automatic history trimming."""
@@ -55,9 +63,12 @@ class PeerSpaceAgent:
         return clean.strip()[:MAX_INPUT_LENGTH]
 
     def _trim_history(self):
-        """Maintains bounded memory to prevent token exhaustion / context stuffing."""
+        """Maintains bounded memory while archiving older messages into rolling memory."""
         if len(self.conversation_history) > MAX_CONTEXT_MESSAGES + 1:
             system_msg = self.conversation_history[0]
+            dropped_msgs = self.conversation_history[1 : len(self.conversation_history) - MAX_CONTEXT_MESSAGES]
+            if hasattr(self, "memory") and self.memory and dropped_msgs:
+                self.memory.archive_and_condense(dropped_msgs)
             recent_msgs = self.conversation_history[-MAX_CONTEXT_MESSAGES:]
             self.conversation_history = [system_msg] + recent_msgs
 
@@ -102,29 +113,54 @@ class PeerSpaceAgent:
         return "other"
 
     def _get_fallback_message(self, user_message: str, connection_drop: bool = False) -> str:
-        """Returns empathetic fallback response matching the user's language and tone."""
+        """Returns friendly fallback response matching the user's language and tone (1-3 sentences)."""
         lang = self._detect_user_language(user_message)
         if connection_drop:
             if lang == "hindi":
-                return "माफ़ करना, मेरा कनेक्शन एक पल के लिए कट गया था। क्या तुम फिर से बता सकते हो?"
+                return "माफ़ करना, मेरा कनेक्शन एक पल के लिए कट गया था। क्या तुम अपनी बात फिर से बता सकते हो?"
             elif lang == "hinglish":
-                return "Yaar mera connection thoda drop ho gaya tha. Ek baar phir se batana kya bol rahe the?"
+                return "Yaar connection thoda drop ho gaya tha. Ek baar phir se batana kya baat chal rahi thi?"
             else:
-                return "Hey, my connection dropped for a second. Could you say that one more time?"
+                return "My connection dipped for a moment there. Could you say that one more time?"
         else:
             if lang == "hindi":
-                return "मैं यहीं हूँ तुम्हारे साथ। बिल्कुल आराम से बताओ, क्या चल रहा है तुम्हारे मन में?"
+                return "मैं यहीं हूँ। जो भी बात है, आराम से बताओ—कोई जल्दबाज़ी नहीं है।"
             elif lang == "hinglish":
-                return "Bhai main yahin hoon tere saath. Tension mat le, aaram se bata kya chal raha hai mind mein?"
+                return "Bhai main yahin hoon. Tension mat le, aaram se bata kya baat hai."
             else:
-                return "Hey, I'm right here with you. Take your time—what's on your mind?"
+                return "Take your time—it's okay. What's on your mind right now?"
+
+    def _extract_reasoning(self, text: str) -> Optional[str]:
+        """
+        Extracts internal reasoning/thoughts that analyze information and decide what to do.
+        Matches 'Reasoning: ...' up to 'Action:', 'Final Answer:', or end of string.
+        """
+        match = re.search(r"(?:Reasoning|Thought):\s*(.*?)(?=\n(?:Action|Final Answer|Observation):|\Z)", text, re.DOTALL | re.IGNORECASE)
+        if match:
+            reasoning = match.group(1).strip()
+            return reasoning if reasoning else None
+        return None
 
     def _extract_final_answer(self, text: str) -> Optional[str]:
-        """Extracts the final user-facing answer string."""
+        """Extracts the final user-facing answer string, ensuring no internal reasoning leaks."""
         if "Final Answer:" in text:
             parts = text.split("Final Answer:", 1)
-            return parts[1].strip()
+            ans = parts[1].strip()
+            # Strip any trailing reasoning or action directives
+            ans = re.split(r'\n(?:Reasoning|Thought|Action):', ans, flags=re.IGNORECASE)[0].strip()
+            return ans
         return None
+
+    def _clean_student_response(self, text: str) -> str:
+        """Strips out internal Reasoning:, Thought:, and Action: directives to prevent leakages."""
+        clean = text
+        if "Final Answer:" in clean:
+            clean = clean.split("Final Answer:", 1)[1]
+        # Strip leading Reasoning block if present
+        clean = re.sub(r'^(?:Reasoning|Thought):\s*.*?(?=(?:\n\n|\n[A-Z]|\Z))', '', clean, flags=re.DOTALL | re.IGNORECASE)
+        # Strip any Action syntax
+        clean = re.sub(r'Action:\s*[a-zA-Z0-9_]+\(.*?\)', '', clean, flags=re.DOTALL | re.IGNORECASE)
+        return clean.strip()
 
     def _build_react_messages(self) -> List[Dict[str, str]]:
         """
@@ -179,6 +215,12 @@ class PeerSpaceAgent:
                 )
             })
 
+        # Inject memory context if available
+        if hasattr(self, "memory") and self.memory and self.memory.has_context():
+            mem_context = self.memory.get_memory_prompt_context()
+            if mem_context:
+                messages.insert(1, {"role": "system", "content": mem_context})
+
         return messages
 
     def chat(self, user_message: str, session_id: str = "anon-session", alias: str = "Anonymous Student", max_steps: int = 5) -> str:
@@ -211,7 +253,7 @@ class PeerSpaceAgent:
                 print(f"\n[ReAct Step {step + 1}]")
 
             output = ""
-            for attempt in range(2):
+            for attempt in range(3):
                 try:
                     response = client.chat.completions.create(
                         model=self.model_name,
@@ -223,14 +265,27 @@ class PeerSpaceAgent:
                     output = raw_content.strip()
                     if output:
                         break
+                    else:
+                        time.sleep(0.5)
                 except Exception as e:
-                    if attempt == 0:
-                        time.sleep(0.8)
+                    if attempt < 2:
+                        time.sleep(1.0)
                     else:
                         output = f"Final Answer: {self._get_fallback_message(user_message, connection_drop=True)}"
 
             if self.verbose:
                 print(output)
+
+            # Extract and store Reasoning step
+            reasoning = self._extract_reasoning(output)
+            if reasoning:
+                self.last_reasoning = reasoning
+                self.reasoning_history.append({
+                    "step": step + 1,
+                    "reasoning": reasoning
+                })
+                if self.verbose:
+                    print(f"\n[Reasoning]:\n{reasoning}")
 
             # Check if Final Answer is generated
             final_ans = self._extract_final_answer(output)
@@ -241,6 +296,9 @@ class PeerSpaceAgent:
             # Check if an Action is requested
             tool_name, tool_input = self._extract_action(output)
             if tool_name:
+                if self.verbose:
+                    print(f"\n[Action]: {tool_name}(\"{tool_input}\")")
+
                 if tool_name in self.tools:
                     try:
                         observation = self.tools[tool_name](tool_input)
@@ -255,7 +313,7 @@ class PeerSpaceAgent:
                 step_messages.append({"role": "assistant", "content": output})
                 step_messages.append({"role": "user", "content": f"Observation: {observation}"})
             else:
-                final_response = output
+                final_response = self._clean_student_response(output)
                 break
 
         # Single-purpose guardrail: If code or algorithms were somehow produced, pivot in user's language
@@ -268,6 +326,9 @@ class PeerSpaceAgent:
             else:
                 final_response = "I'm really not the person for coding or technical work, but it sounds like you've got a lot of assignment pressure right now. How is your workload feeling?"
 
+        # Ensure internal reasoning or thoughts never leak into user-facing reply
+        final_response = self._clean_student_response(final_response)
+
         if not final_response:
             final_response = self._get_fallback_message(user_message, connection_drop=False)
 
@@ -275,4 +336,12 @@ class PeerSpaceAgent:
         final_response = re.sub(r'^(?:\[COUNSELOR\]:?|Counselor:?)\s*', '', final_response, flags=re.IGNORECASE).strip()
 
         self.conversation_history.append({"role": "assistant", "content": f"Final Answer: {final_response}"})
+
+        # Update memory with turn facts, emotional trajectory, and CBT state
+        if hasattr(self, "memory") and self.memory:
+            try:
+                self.memory.extract_facts_from_turn(user_message, final_response, reasoning=self.last_reasoning)
+            except Exception:
+                pass
+
         return final_response

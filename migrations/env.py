@@ -20,10 +20,18 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+if sys.platform == "win32":
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
+
 from backend.config import DATABASE_URL
 from backend.models.models import Base
 
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# Neon best practice: Run migrations against direct compute endpoint to avoid PgBouncer transaction locks
+migration_url = DATABASE_URL.replace("-pooler", "") if "neon.tech" in DATABASE_URL else DATABASE_URL
+config.set_main_option("sqlalchemy.url", migration_url)
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

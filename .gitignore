@@ -84,7 +84,10 @@ logs/
 tmp/
 temp/
 
-# Agent Workspaces, Skills & Documentation
-docs/
+# Agent Workspaces & Skills
 skills/
 .agents/
+
+# Node.js
+node_modules/
+package-lock.json

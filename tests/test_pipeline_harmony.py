@@ -223,6 +223,8 @@ def test_full_pipeline_harmony_lifecycle(client):
 
         # Counselor ends intervention
         counselor_ws.send_json({"type": "counselor_leave_text", "session_id": sid_h})
+        import time
+        time.sleep(0.15)
         assert not is_counselor_active(sid_h)
 
     # 9c. Student resumes in Hinglish -> AI must respond in Hinglish with peer persona

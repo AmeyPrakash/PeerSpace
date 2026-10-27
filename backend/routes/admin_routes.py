@@ -51,12 +51,18 @@ async def get_active_sessions():
     now = time.time()
     active_list = []
     for sid, entry in reversed(sessions.items()):
+        agent_mem = getattr(entry.agent, "memory", None)
         active_list.append({
             "session_id": sid[:8] + "...",
             "full_id": sid,
             "alias": entry.alias,
             "messages": entry.message_count,
-            "last_active": f"{int((now - entry.last_accessed) / 60)}m ago" if (now - entry.last_accessed) > 60 else "Just now"
+            "last_active": f"{int((now - entry.last_accessed) / 60)}m ago" if (now - entry.last_accessed) > 60 else "Just now",
+            "has_reasoning": bool(getattr(entry.agent, "last_reasoning", None)),
+            "reasoning_preview": (getattr(entry.agent, "last_reasoning", "")[:90] + "...") if getattr(entry.agent, "last_reasoning", None) else None,
+            "has_memory": bool(agent_mem and agent_mem.has_context()),
+            "memory_stressors": agent_mem.key_stressors[:3] if agent_mem else [],
+            "memory_tools": list(agent_mem.coping_tools_used.keys())[:2] if agent_mem else []
         })
     return {
         "active_sessions": active_list,
@@ -102,10 +108,15 @@ async def get_session_transcript(session_id: str):
             "content": clean_content
         })
 
+    agent_mem = getattr(session.agent, "memory", None)
+
     return {
         "session_id": session_id,
         "alias": session.alias,
         "counselor_active": session.counselor_active,
+        "last_reasoning": getattr(session.agent, "last_reasoning", None),
+        "reasoning_history": getattr(session.agent, "reasoning_history", []),
+        "memory_profile": agent_mem.get_summary_dict() if agent_mem else {},
         "transcript": history
     }
 
