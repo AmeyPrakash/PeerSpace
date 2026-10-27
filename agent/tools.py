@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 PeerSpace AI CBT & Safety Tools
 Provides distortion analysis, grounding exercises, campus resources, and counselor alerts.
@@ -7,7 +8,7 @@ import re
 import uuid
 from datetime import datetime
 from collections import deque
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple, Any
 
 # In-memory mood tracking log bounded to max 100 entries to prevent memory exhaustion
 SESSION_MOOD_LOG = deque(maxlen=100)
