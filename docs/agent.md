@@ -132,7 +132,7 @@ The AI Coach is orchestrated by a robust execution engine in [`agent/agent.py`](
 ## 📁 Related Source Files & Tests
 
 - **Core Reasoning & Orchestration Agent**: [`agent/agent.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/agent.py)
-- **Tool Registry & Secure Execution**: [`agent/tools.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/tools.py)
+- **Tool Registry & Secure Execution**: [`agent/tools.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/tools.py) (includes `from __future__ import annotations` and explicit `Tuple, Any` typing for cross-Python runtime compatibility on AWS Lambda).
 - **Prompts & Persona Rules**: [`agent/prompts.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/prompts.py)
 - **In-RAM Ephemeral Memory**: [`agent/memory.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/memory.py)
 - **Automated Orchestration Test Suite**: [`tests/test_agent_orchestration.py`](file:///c:/Users/Amey/Desktop/PeerSpace/tests/test_agent_orchestration.py)

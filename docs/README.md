@@ -28,12 +28,13 @@ Detailed documentation for each component of the platform is organized into dedi
 | ⚙️ [**Backend & API Architecture**](backend.md) | FastAPI modular structure, `pydantic-settings` configuration, `/api/health` check with zero credential leakage, and WebSockets/WebRTC signaling. |
 | 🎨 [**Frontend & Counselor Portal**](frontend.md) | User interfaces, student chat view, on-duty counselor portal, live AI reasoning stream, and privacy cleanups. |
 | 🚀 [**Setup & How to Run**](setup_and_running.md) | Simple step-by-step instructions for running the server locally, managing environment variables, and testing connections. |
+| ☁️ [**Deployment & Vercel Serverless**](deployment.md) | Serverless architecture guide, resilient configuration fallback pattern, cross-platform compatibility, and production readiness. |
 
 ---
 
 ## 🛠️ Summary of Recent Major Achievements
 
-Here is what we have implemented and polished in simple words:
+Here is what we have implemented, hardened, and polished:
 
 1. **AI Coach Reasoning & Analysis**:
    - The AI now analyzes the user's situation and determines the most helpful action before generating its response.
@@ -47,11 +48,30 @@ Here is what we have implemented and polished in simple words:
    - Replaced clinical therapist clichés (*"It sounds like you're feeling anxious"* or *"Would you like to explore those feelings?"*) with direct, warm, supportive language (*"It's okay—one mistake doesn't define who you are"*).
    - Kept responses short (1–3 sentences) and natural. Added support for authentic Hinglish code-switching without robotic script mixing.
 
-4. **Counselor Portal Cleanliness**:
+4. **Counselor Portal Cleanliness & Real-Time Sync**:
    - Removed internal cognitive debug profiles (`🧠 Student Memory & Context Profile`) from the counselor window so counselors have a clean, focused view of the chat and live reasoning stream.
+   - Fixed counselor state persistence on refresh so the "Counselor Active" banner never gets stuck.
+   - Fixed WebRTC voice join button to directly connect counselor and student via live audio rather than defaulting to text chat.
 
 5. **Neon PostgreSQL & Psycopg 3 Migration**:
    - Connected the FastAPI backend directly to **Neon Serverless PostgreSQL** (PostgreSQL 18.6).
    - Configured `pydantic-settings` to securely load and validate `DATABASE_URL` from `.env`.
    - Switched to the modern **Psycopg 3** driver with native SSL enforcement and PgBouncer connection pooling.
    - Enhanced `/api/health` to verify database health (`SELECT 1`) with zero credential or internal error leakage.
+
+6. **AI Agent Orchestration Engine**:
+   - Implemented full ReAct tool-calling loop with strict budget enforcement (`MAX_ITERATIONS = 4`, `MAX_TOOL_BUDGET = 3`).
+   - Added pre-generation crisis safety fast-path that intercepts acute crisis keywords in English and Hinglish and triggers critical counselor alerts with 24/7 helpline contacts without waiting for LLM generation.
+   - Added post-generation anti-fabrication filter preventing the model from claiming false actions.
+   - Built a zero-tool fast path for natural, direct conversational turns.
+
+7. **Vercel Serverless Deployment Compatibility & Resilient Config**:
+   - Built a resilient fallback configuration loader in [`backend/config.py`](file:///c:/Users/Amey/Desktop/PeerSpace/backend/config.py) that catches import errors and uses standard environment variables if `pydantic-settings` fails to bundle in serverless runtimes.
+   - Ensured static frontend directory resolution works across case-sensitive Linux filesystems (`Frontend`).
+   - Added `from __future__ import annotations` and explicit `Tuple, Any` imports in [`agent/tools.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/tools.py) for cross-version Python compatibility on AWS Lambda.
+   - Ensured zero runtime disk writes: all persistence lives in Neon PostgreSQL and ephemeral in-RAM memory.
+
+8. **Comprehensive Automated Test Coverage**:
+   - 10/10 automated tests passing in [`tests/test_agent_orchestration.py`](file:///c:/Users/Amey/Desktop/PeerSpace/tests/test_agent_orchestration.py).
+   - Ephemeral memory tracking tests passing in [`tests/test_agent_memory.py`](file:///c:/Users/Amey/Desktop/PeerSpace/tests/test_agent_memory.py).
+   - Security audit tests passing in [`tests/test_security.py`](file:///c:/Users/Amey/Desktop/PeerSpace/tests/test_security.py).

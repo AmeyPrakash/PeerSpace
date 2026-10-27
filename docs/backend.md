@@ -44,12 +44,15 @@ backend/
 
 ---
 
-## 🔐 Secure Configuration (`backend/config.py`)
+## 🔐 Secure & Resilient Configuration (`backend/config.py`)
 
-All configuration is managed with **`pydantic-settings`** and loaded from the project's root `.env` file:
-- **No Hardcoded Secrets**: Credentials like database passwords, JWT secrets, and AWS keys are never written in the code.
-- **Smart URL Normalization**: If the `DATABASE_URL` starts with `postgresql://` or `postgres://`, it is automatically converted to `postgresql+psycopg://` so SQLAlchemy uses the modern Psycopg 3 async driver.
-- **Enforced SSL**: Enforces `sslmode=require` so all network traffic between our server and Neon PostgreSQL is encrypted.
+All configuration is loaded securely with a resilient dual-engine fallback:
+- **Primary Engine (`pydantic-settings`)**: Validates environment variables from `.env`, enforcing strong types and field validators.
+- **Resilient Serverless Fallback (`os.getenv` + `python-dotenv`)**: If `pydantic-settings` is missing or fails to bundle in serverless cloud runtimes (e.g., Vercel / AWS Lambda), the configuration engine automatically falls back to native `os.getenv` without crashing the application.
+- **No Hardcoded Secrets**: Credentials like database connection strings, JWT secrets, and API keys are strictly read from the environment.
+- **Smart URL Normalization**: If `DATABASE_URL` starts with `postgresql://`, `postgres://`, or `postgresql+asyncpg://`, it is automatically converted to `postgresql+psycopg://` so SQLAlchemy uses the modern Psycopg 3 async driver.
+- **Enforced SSL**: Automatically appends `sslmode=require` if connecting to Neon Serverless PostgreSQL.
+- **Case-Insensitive Static Path**: Checks both `Frontend/` and `frontend/` to support both Windows and case-sensitive Linux serverless environments.
 
 ---
 

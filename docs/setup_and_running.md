@@ -164,3 +164,34 @@ python server.py
 If the database fails to connect:
 1. Verify that your Neon database is active (Neon databases pause when idle and automatically wake up within 2–3 seconds on the first query).
 2. Check that your `.env` contains `sslmode=require`.
+
+---
+
+## 🧪 Running Automated Test Suites
+
+PeerSpace includes comprehensive automated test suites covering AI agent orchestration, session memory, and security:
+
+```powershell
+# 1. Run the AI Agent Orchestration test suite (10/10 tests)
+python tests/test_agent_orchestration.py
+
+# 2. Run the In-RAM Memory & Stressor Tracking test suite
+python tests/test_agent_memory.py
+
+# 3. Run the Security & Rate Limiting test suite
+python tests/test_security.py
+
+# 4. Run the WebRTC Voice Matchmaking test suite
+python tests/test_voice_matchmaking.py
+```
+
+---
+
+## ☁️ Deploying to Vercel
+
+PeerSpace can be deployed to Vercel with zero configuration changes:
+
+1. Push your latest code to your GitHub repository (`git push origin main`).
+2. Import the repository in the **Vercel Dashboard**.
+3. Under **Project Settings > Environment Variables**, add your `DATABASE_URL` (Neon PostgreSQL), `GROQ_API_KEY`, `GROQ_MODEL`, and `COUNSELOR_PASSKEY`.
+4. Deploy! Vercel will automatically detect `server.py` and serve both the static UI and the FastAPI API. See [`docs/deployment.md`](deployment.md) for full details.
