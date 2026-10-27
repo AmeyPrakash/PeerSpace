@@ -83,5 +83,8 @@ desktop.ini
 logs/
 tmp/
 temp/
-docs
-.agents
+
+# Agent Workspaces, Skills & Documentation
+docs/
+skills/
+.agents/
