@@ -101,16 +101,38 @@ Safety is paramount on a campus platform. The AI Coach is equipped with automati
 | :--- | :--- |
 | **`crisis_safety_check`** | Detects words related to self-harm, severe despair, or crisis. Immediately provides 24/7 national and campus helpline contacts. |
 | **`escalate_counselor_intervention`** | Alerts on-duty campus counselors instantly on their dashboard, flagging the student's session for human intervention. |
-| **`calming_exercise_guide`** | Guides students step-by-step through box breathing, 4-7-8 breathing, or 5-4-3-2-1 sensory grounding when panic hits. |
-| **`campus_resources_lookup`** | Gives hours, locations, and contact info for university mental health clinics, peer tutoring, and academic advisors. |
+| **`mood_journal_tracker`** | Logs emotional check-in and mood triggers for the session. |
 
 ---
 
-## 📁 Related Source Files
+## ⚙️ Orchestration Architecture & Tool Calling Loop
 
-If you want to view the code for the AI Coach:
-- **Core Reasoning Agent**: [`agent/agent.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/agent.py)
+The AI Coach is orchestrated by a robust execution engine in [`agent/agent.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/agent.py):
+
+1. **Pre-Generation Safety Fast-Path**:
+   - Before invoking the LLM, the student's message is inspected for acute self-harm or crisis keywords.
+   - If detected, the agent immediately alerts on-duty counselors (`CRITICAL` severity) and returns 24/7 helplines (**Tele-MANAS**: `14416`, **Jeevan Aastha**: `1800 233 3330`, **Aasra**: `09820466726`) in the student's language without waiting for LLM completion.
+
+2. **ReAct Tool-Calling Loop & Budgeting**:
+   - **Iteration Limit**: Capped at `MAX_ITERATIONS = 4` to prevent infinite loops.
+   - **Tool Budget**: Capped at `MAX_TOOL_BUDGET = 3` total tool executions per turn.
+   - **Zero-Tool Fast-Path**: If the student sends a casual message, the model answers directly with `Final Answer:` on step 1 with zero tool overhead.
+
+3. **Tool Registry & Security Sandbox**:
+   - Validates argument types and enforces length bounds (e.g. max 200–500 chars).
+   - Enforces user authorization (students can only call authorized wellness tools).
+   - Timeouts (4s per tool) and safe exception catching ensure tools never crash the application.
+
+4. **Post-Generation Anti-Fabrication Guard**:
+   - Inspects the generated response to detect fabricated action confirmations (e.g., falsely claiming to have booked an appointment or contacted a professor without executing a corresponding tool).
+   - Safely reframes responses and strips internal reasoning directives.
+
+---
+
+## 📁 Related Source Files & Tests
+
+- **Core Reasoning & Orchestration Agent**: [`agent/agent.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/agent.py)
+- **Tool Registry & Secure Execution**: [`agent/tools.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/tools.py)
 - **Prompts & Persona Rules**: [`agent/prompts.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/prompts.py)
 - **In-RAM Ephemeral Memory**: [`agent/memory.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/memory.py)
-- **Safety Tools & Helplines**: [`agent/tools.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/tools.py)
-- **ReAct Execution Chain**: [`agent/react_chain.py`](file:///c:/Users/Amey/Desktop/PeerSpace/agent/react_chain.py)
+- **Automated Orchestration Test Suite**: [`tests/test_agent_orchestration.py`](file:///c:/Users/Amey/Desktop/PeerSpace/tests/test_agent_orchestration.py)

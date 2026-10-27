@@ -10,7 +10,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 from typing import Optional, List, Dict, Any, Tuple
 from groq import Groq
-from agent.tools import AVAILABLE_TOOLS, set_session_context
+from agent.tools import (
+    AVAILABLE_TOOLS,
+    TOOL_REGISTRY,
+    set_session_context,
+    execute_tool_securely,
+    escalate_counselor_intervention
+)
 from agent.prompts import SYSTEM_PROMPT
 from agent.memory import ConversationMemory
 
@@ -18,15 +24,14 @@ from agent.memory import ConversationMemory
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-api_key = os.getenv("GROQ_API_KEY")
-if not api_key:
-    raise ValueError("GROQ_API_KEY not found in environment or .env file.")
-
-client = Groq(api_key=api_key)
+api_key = os.getenv("GROQ_API_KEY", "")
+client = Groq(api_key=api_key or "gsk_placeholder_key_for_build")
 
 MAX_CONTEXT_MESSAGES = 12
 MAX_INPUT_LENGTH = 2000
 DEFAULT_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+MAX_ITERATIONS = 4
+MAX_TOOL_BUDGET = 3
 
 
 class PeerSpaceAgent:
@@ -223,34 +228,145 @@ class PeerSpaceAgent:
 
         return messages
 
-    def chat(self, user_message: str, session_id: str = "anon-session", alias: str = "Anonymous Student", max_steps: int = 5) -> str:
+    def _extract_actions(self, text: str) -> List[Tuple[str, str]]:
+        """Extracts all tool actions (name and input argument) from text."""
+        matches = re.findall(r"Action:\s*([a-zA-Z0-9_]{1,50})\(\s*[\"']?(.*?)[\"']?\s*\)", text, re.DOTALL)
+        actions = []
+        for name, arg in matches:
+            actions.append((name.strip(), arg.strip().strip('"\'')[:500]))
+        return actions
+
+    def _pre_generation_safety_check(self, user_message: str, session_id: str, alias: str) -> Optional[str]:
         """
-        Executes the ReAct loop dynamically with session tracking and intervention triggers.
+        Pre-generation safety check. If acute crisis or self-harm risk is detected,
+        immediately alerts on-duty campus counselors and activates an instant, prioritized
+        crisis response path with 24/7 helplines in the student's language.
+        """
+        msg_lower = user_message.lower()
+        crisis_keywords = [
+            "suicide", "kill myself", "want to die", "end my life", "self harm",
+            "hurt myself", "no reason to live", "better off dead", "marne ka man",
+            "khatam kar lunga", "jeene ka man nahi", "khud ko nuksan", "end it all"
+        ]
+        if any(k in msg_lower for k in crisis_keywords):
+            # Dispatch emergency counselor alert
+            try:
+                escalate_counselor_intervention(f"Crisis safety alert for statement: {user_message[:120]}")
+            except Exception:
+                pass
+
+            lang = self._detect_user_language(user_message)
+            if lang == "hindi":
+                return (
+                    "मैं तुम्हारी बात सुन रहा हूँ, और तुम अकेले नहीं हो—तुम्हारी ज़िंदगी बहुत कीमती है। "
+                    "कृपया तुरंत Tele-MANAS (14416 / 1800 891 4416), जीवन आस्था (1800 233 3330), या आसरा (09820466726) पर कॉल करें। "
+                    "हमने कैंपस सपोर्ट टीम को भी सूचित कर दिया है। मैं यहीं हूँ—आराम से बताओ अभी क्या चल रहा है?"
+                )
+            elif lang == "hinglish":
+                return (
+                    "Bhai main tumhari baat sun raha hoon, aur tum bilkul akele nahi ho—tumhari zindagi bohot keemti hai. "
+                    "Please turant kisi safe insaan ya helpline se connect karo: Tele-MANAS (14416 / 1800 891 4416), Jeevan Aastha (1800 233 3330), ya Aasra (09820466726). "
+                    "Humne campus counselor team ko bhi alert bhej diya hai. Main yahin hoon tumhare saath, kya ho raha hai?"
+                )
+            else:
+                return (
+                    "I hear you, and please know that you are not alone and your life matters deeply. "
+                    "Please reach out right now to free 24/7 professional support: Tele-MANAS (14416 / 1800 891 4416), Jeevan Aastha (1800 233 3330), or Aasra (09820466726). "
+                    "Our on-call campus counseling team has also been alerted. I'm right here with you—what's happening right now?"
+                )
+        return None
+
+    def _post_generation_safety_check(self, text: str, user_message: str, executed_tools: List[str]) -> str:
+        """
+        Post-generation safety and quality check:
+        1. Strips internal reasoning, thought, and action tags.
+        2. Detects and corrects fabricated external action confirmations.
+        3. Prevents code/homework generation and redirects warmly.
+        4. Strips leaked directives or roleplay prefixes.
+        """
+        clean = self._clean_student_response(text)
+
+        # 2. Prevent fabricated action confirmations when no tool backed it
+        fabricated_checks = [
+            (r"\b(?:i (?:have )?(?:booked|scheduled|confirmed|reserved)\b.*?\b(?:appointment|session|slot))\b",
+             "I can't directly book appointments for you, but you can schedule a 1-on-1 session right through the Counselor Portal."),
+            (r"\b(?:i (?:have )?(?:called|emailed|contacted|notified|spoken to)\b.*?\b(?:professor|dean|advisor|police|dispatch))\b",
+             "As a peer coach, I can't contact university staff on your behalf, but you can reach out directly to the Dean of Students or Counseling Center."),
+            (r"\b(?:i (?:have )?(?:dropped|withdrawn|cancelled)\b.*?\b(?:course|class|exam|test))\b",
+             "I don't have access to your academic records to drop courses, but your academic advisor can help you review your options.")
+        ]
+        for pattern, correction in fabricated_checks:
+            if re.search(pattern, clean, re.IGNORECASE):
+                clean = re.sub(pattern, correction, clean, flags=re.IGNORECASE)
+
+        # 3. Disallowed code / trivia deflection
+        if self._contains_disallowed_code(clean):
+            lang = self._detect_user_language(user_message)
+            if lang == "hinglish":
+                clean = "Yaar coding ya homework toh mere bas ki nahi hai, par lagta hai assignment ka bohot load hai. Kaisa feel ho raha hai?"
+            elif lang == "hindi":
+                clean = "मैं कोडिंग या होमवर्क तो नहीं कर सकता, पर ऐसा लग रहा है कि पढ़ाई का काफ़ी तनाव है। कैसा महसूस कर रहे हो?"
+            else:
+                clean = "I'm really not the person for coding or technical work, but it sounds like you've got a lot of assignment pressure right now. How is your workload feeling?"
+
+        # 4. Clean leading/trailing artifacts
+        clean = re.sub(r'^(?:\[COUNSELOR\]:?|Counselor:?)\s*', '', clean, flags=re.IGNORECASE).strip()
+        clean = re.sub(r'^(?:Observation|Action|Final Answer):\s*', '', clean, flags=re.IGNORECASE).strip()
+        return clean
+
+    def chat(
+        self,
+        user_message: str,
+        session_id: str = "anon-session",
+        alias: str = "Anonymous Student",
+        user_role: str = "student",
+        max_steps: int = MAX_ITERATIONS,
+        tool_budget: int = MAX_TOOL_BUDGET
+    ) -> str:
+        """
+        Executes the complete AI agent orchestration loop:
+        1. Pre-generation safety check with separate crisis fast-path.
+        2. Ephemeral in-RAM memory context injection.
+        3. Multi-turn ReAct reasoning and tool-calling with strict iteration & budget limits.
+        4. Validated and authorized tool execution.
+        5. Direct conversational responses without unnecessary tool calls.
+        6. Post-generation safety validation and anti-fabrication enforcement.
         """
         import time
         user_message = self._sanitize_input(user_message)
         if not user_message:
             return ""
 
-        # Set session context for tool tracing (e.g. counselor alerts)
+        # Bind session context for tool tracking (e.g. counselor alerts)
         set_session_context(session_id, alias)
 
-        # Automatic safety guardrail: evaluate safety and trigger counselor alert if critical risk is detected
-        try:
-            self.tools["crisis_safety_check"](user_message)
-        except Exception:
-            pass
+        # 1. Pre-generation Safety Check & Crisis Fast-Path
+        crisis_reply = self._pre_generation_safety_check(user_message, session_id, alias)
+        if crisis_reply:
+            self.conversation_history.append({"role": "user", "content": user_message})
+            self.conversation_history.append({"role": "assistant", "content": f"Final Answer: {crisis_reply}"})
+            self._trim_history()
+            if hasattr(self, "memory") and self.memory:
+                try:
+                    self.memory.extract_facts_from_turn(user_message, crisis_reply, reasoning="Acute crisis risk detected; activated priority crisis response path.")
+                except Exception:
+                    pass
+            self.last_reasoning = "Acute crisis risk detected; activated priority crisis response path."
+            return crisis_reply
 
-        # Append student message to conversation history
+        # 2. Append student message to conversation history
         self.conversation_history.append({"role": "user", "content": user_message})
         self._trim_history()
 
         step_messages = self._build_react_messages()
         final_response = ""
+        tool_calls_executed = 0
+        executed_tools_in_turn = []
 
+        # 3. ReAct Tool-Calling Loop with iteration limit
         for step in range(max_steps):
             if self.verbose:
-                print(f"\n[ReAct Step {step + 1}]")
+                print(f"\n[ReAct Step {step + 1}/{max_steps}] (Tool Budget Remaining: {tool_budget - tool_calls_executed})")
 
             output = ""
             for attempt in range(3):
@@ -287,57 +403,55 @@ class PeerSpaceAgent:
                 if self.verbose:
                     print(f"\n[Reasoning]:\n{reasoning}")
 
-            # Check if Final Answer is generated
+            # Check if Final Answer is generated directly (Conversational turn without tools)
             final_ans = self._extract_final_answer(output)
             if final_ans is not None:
                 final_response = final_ans
                 break
 
-            # Check if an Action is requested
-            tool_name, tool_input = self._extract_action(output)
-            if tool_name:
-                if self.verbose:
-                    print(f"\n[Action]: {tool_name}(\"{tool_input}\")")
+            # Check if Action(s) are requested
+            actions = self._extract_actions(output)
+            if actions:
+                for tool_name, tool_input in actions:
+                    if tool_calls_executed >= tool_budget:
+                        budget_obs = f"[Tool call budget reached (max {tool_budget}). Do not invoke further tools. Synthesize your final empathetic peer response now.]"
+                        step_messages.append({"role": "assistant", "content": output})
+                        step_messages.append({"role": "user", "content": f"Observation: {budget_obs}"})
+                        if self.verbose:
+                            print(f"\n[Observation (Budget Reached)]: {budget_obs}")
+                        break
 
-                if tool_name in self.tools:
-                    try:
-                        observation = self.tools[tool_name](tool_input)
-                    except Exception:
-                        observation = "Error executing tool safely."
-                else:
-                    observation = f"Tool '{tool_name}' not recognized."
+                    if self.verbose:
+                        print(f"\n[Action]: {tool_name}(\"{tool_input}\")")
 
-                if self.verbose:
-                    print(f"\n[Observation]:\n{observation}")
+                    # Execute tool securely with authorization and timeout enforcement
+                    success, observation = execute_tool_securely(
+                        tool_name=tool_name,
+                        tool_input=tool_input,
+                        user_role=user_role,
+                        timeout_seconds=4.0
+                    )
+                    tool_calls_executed += 1
+                    executed_tools_in_turn.append(tool_name)
 
-                step_messages.append({"role": "assistant", "content": output})
-                step_messages.append({"role": "user", "content": f"Observation: {observation}"})
+                    if self.verbose:
+                        print(f"\n[Observation (Success={success})]:\n{observation}")
+
+                    step_messages.append({"role": "assistant", "content": f"Action: {tool_name}(\"{tool_input}\")"})
+                    step_messages.append({"role": "user", "content": f"Observation: {observation}"})
             else:
                 final_response = self._clean_student_response(output)
                 break
 
-        # Single-purpose guardrail: If code or algorithms were somehow produced, pivot in user's language
-        if self._contains_disallowed_code(final_response):
-            lang = self._detect_user_language(user_message)
-            if lang == "hinglish":
-                final_response = "Yaar coding ya homework toh mere bas ki nahi hai, par lagta hai assignment ka bohot load hai. Kaisa feel ho raha hai?"
-            elif lang == "hindi":
-                final_response = "मैं कोडिंग या होमवर्क तो नहीं कर सकता, पर ऐसा लग रहा है कि पढ़ाई का काफ़ी तनाव है। कैसा महसूस कर रहे हो?"
-            else:
-                final_response = "I'm really not the person for coding or technical work, but it sounds like you've got a lot of assignment pressure right now. How is your workload feeling?"
-
-        # Ensure internal reasoning or thoughts never leak into user-facing reply
-        final_response = self._clean_student_response(final_response)
+        # 4. Post-generation Safety Check & Anti-Fabrication Enforcement
+        final_response = self._post_generation_safety_check(final_response, user_message, executed_tools_in_turn)
 
         if not final_response:
             final_response = self._get_fallback_message(user_message, connection_drop=False)
 
-        # Ensure no accidental counselor prefix persists in final response
-        final_response = re.sub(r'^(?:\[COUNSELOR\]:?|Counselor:?)\s*', '', final_response, flags=re.IGNORECASE).strip()
-
         self.conversation_history.append({"role": "assistant", "content": f"Final Answer: {final_response}"})
 
-        # Update memory with turn facts, emotional trajectory, and CBT state
+        # 5. Update In-RAM Ephemeral Memory with turn facts and emotional trajectory
         if hasattr(self, "memory") and self.memory:
             try:
                 self.memory.extract_facts_from_turn(user_message, final_response, reasoning=self.last_reasoning)

@@ -275,3 +275,89 @@ AVAILABLE_TOOLS = {
     "mood_journal_tracker": mood_journal_tracker,
     "escalate_counselor_intervention": escalate_counselor_intervention,
 }
+
+TOOL_REGISTRY = {
+    "cbt_distortion_identifier": {
+        "function": cbt_distortion_identifier,
+        "description": "Analyzes negative thoughts for cognitive distortions (catastrophizing, black-and-white, etc.).",
+        "allowed_roles": ["student", "counselor", "admin"],
+        "max_length": 500,
+        "timeout": 4.0,
+    },
+    "crisis_safety_check": {
+        "function": crisis_safety_check,
+        "description": "Evaluates acute crisis/self-harm risk and returns helplines.",
+        "allowed_roles": ["student", "counselor", "admin"],
+        "max_length": 500,
+        "timeout": 4.0,
+    },
+    "calming_exercise_guide": {
+        "function": calming_exercise_guide,
+        "description": "Guides box breathing, 4-7-8, or 5-4-3-2-1 grounding.",
+        "allowed_roles": ["student", "counselor", "admin"],
+        "max_length": 200,
+        "timeout": 4.0,
+    },
+    "campus_resources_lookup": {
+        "function": campus_resources_lookup,
+        "description": "Campus wellness, counseling, and tutoring resources.",
+        "allowed_roles": ["student", "counselor", "admin"],
+        "max_length": 200,
+        "timeout": 4.0,
+    },
+    "mood_journal_tracker": {
+        "function": mood_journal_tracker,
+        "description": "Logs emotional check-in for the active session.",
+        "allowed_roles": ["student", "counselor", "admin"],
+        "max_length": 200,
+        "timeout": 4.0,
+    },
+    "escalate_counselor_intervention": {
+        "function": escalate_counselor_intervention,
+        "description": "Alerts campus counselors for emergency intervention.",
+        "allowed_roles": ["student", "counselor", "admin"],
+        "max_length": 300,
+        "timeout": 4.0,
+    },
+}
+
+import concurrent.futures
+
+def execute_tool_securely(
+    tool_name: str,
+    tool_input: str,
+    user_role: str = "student",
+    timeout_seconds: Optional[float] = None
+) -> Tuple[bool, str]:
+    """
+    Validates, authorizes, and safely executes a tool with input sanitization and timeout protection.
+    Returns (success: bool, observation: str).
+    """
+    if tool_name not in TOOL_REGISTRY:
+        return False, f"Authorization Error: Tool '{tool_name}' is not recognized or permitted in this system."
+
+    meta = TOOL_REGISTRY[tool_name]
+    
+    # 1. Enforce user authorization
+    allowed_roles = meta.get("allowed_roles", ["student"])
+    if user_role not in allowed_roles:
+        return False, f"Authorization Error: Role '{user_role}' is not authorized to invoke '{tool_name}'."
+
+    # 2. Validate & sanitize tool argument
+    max_len = meta.get("max_length", 500)
+    sanitized_input = _sanitize_tool_input(tool_input, max_chars=max_len)
+    
+    # 3. Timeout bounds
+    effective_timeout = timeout_seconds if timeout_seconds is not None else meta.get("timeout", 4.0)
+
+    # 4. Safe execution
+    func = meta["function"]
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(func, sanitized_input)
+            result = future.result(timeout=effective_timeout)
+            return True, str(result)
+    except concurrent.futures.TimeoutError:
+        return False, f"Execution Timeout: Tool '{tool_name}' timed out after {effective_timeout}s."
+    except Exception as exc:
+        return False, f"Execution Error: Tool '{tool_name}' failed safely: {exc}"

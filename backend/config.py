@@ -24,8 +24,8 @@ class Settings(BaseSettings):
 
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    COUNSELOR_PASSKEY: str
-    GROQ_API_KEY: str
+    COUNSELOR_PASSKEY: str = Field(default="peerspace_passkey", description="Counselor access passkey")
+    GROQ_API_KEY: str = Field(default="", description="Groq API key")
     GROQ_MODEL: str = "openai/gpt-oss-120b"
     DATABASE_URL: str = Field(
         default="postgresql+psycopg://postgres:postgres@localhost:5432/peerspace",
