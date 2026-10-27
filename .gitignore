@@ -83,3 +83,5 @@ desktop.ini
 logs/
 tmp/
 temp/
+docs
+.agents
